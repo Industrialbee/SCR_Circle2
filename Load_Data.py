@@ -21,7 +21,7 @@ def one_location_per_station_rule(model, station):
 
 def one_station_per_location_rule(model, location):
     #A location can only have one station (or be empty)
-    return sum(model.x[station, location] for station in model.STATIONS) == 1
+    return sum(model.x[station, location] for station in model.STATIONS) <= 1
 
 with open("./data/station_pairs.json", "r", encoding="utf-8") as sp:
     station_pairs = json.load(sp)
