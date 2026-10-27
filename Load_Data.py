@@ -23,6 +23,18 @@ def one_station_per_location_rule(model, location):
     #A location can only have one station (or be empty)
     return sum(model.x[station, location] for station in model.STATIONS) <= 1
 
+def one_pair_per_edges_rule(edge,location1, location2):
+    #A station pair occupies only one edge
+    return sum(model.z[edge,location1, location2] for edge in model.EDGES) == 1
+
+def location_pair_distance(location1, location2):
+#dummy function - will need to precompute before use
+    return 1
+    
+def model_objective_rule (model):
+    return sum(sum(sum(location_pair_distance(l1,l2)*model.z[e, l1, l2] for l2 in model.LOCATION2) for l1 in model.LOCATION1) for e in model.EDGES) 
+
+
 with open("./data/station_pairs.json", "r", encoding="utf-8") as sp:
     station_pairs = json.load(sp)
 
@@ -42,7 +54,7 @@ print(NoPotentialLocations)
 #print(StationLocationMx)
 
 #Define model
-model = pyo.ConcreteModel()
+model = pyo.ConcreteModel(name="Station placement")
 #model.x(NoStations, NoPotentialLocations)
 
 #Create location names then add location names / station names to model
@@ -57,14 +69,31 @@ model.one_location_per_station = pyo.Constraint( model.STATIONS, rule=one_locati
 model.one_station_per_location = pyo.Constraint(model.LOCATIONS,   rule=one_station_per_location_rule)
 
 #Dummy objective - test valid model)
-model.objective = pyo.Objective(expr=0, sense=pyo.minimize)
+#model.objective = pyo.Objective(expr=0, sense=pyo.minimize)
 
 #solver = pyo.SolverFactory("highs")
-solver = pyo.SolverFactory("appsi_highs")
-results = solver.solve(model, tee=True)
+#solver = pyo.SolverFactory("appsi_highs")
+#results = solver.solve(model, tee=True)
 
 for station in model.STATIONS:
     for location in model.LOCATIONS:
         if pyo.value(model.x[station, location]) > 0.5:
             print(station, "->", location)
-            
+
+#calculate edges (distance between stations)
+model.LOCATION1 = model.LOCATIONS
+model.LOCATION2 = model.LOCATIONS
+model.EDGES=pyo.Set(initialize=airlink_edges,    ordered=True)
+model.z=pyo.Var(EDGES, LOCATION1, LOCATION2)
+
+model.one_station_pair_per_edges = pyo.Constraint( model.EDGES, rule=one_pair_per_edges_rule)
+
+#Real objective - minimise distance between the chosen location of A and the chosen location of B
+#min sum_e sum_{l_1} sum_{l_2} d_{l_1,l_2} ;z_{e,l_1,l_2}
+#model.objective = pyo.Objective(expr=0, sense=pyo.minimize)
+
+model.objective = pyo.Objective(expr=model_objective_rule, sense=pyo.minimize)
+
+solver = pyo.SolverFactory("appsi_highs")
+results = solver.solve(model, tee=True)
+
