@@ -113,11 +113,8 @@ def build_model(airlink_stations, airlink_edges, location_names, valid_location_
     model.edge_end_location = pyo.Constraint(model.EDGES,model.LOCATIONS,rule=edge_end_location_rule)
     
     #Real objective - minimise distance between the chosen location of A and the chosen location of B
-    model.objective = pyo.Objective(rule=model_objective_rule, sense=pyo.minimize)
-    
-    solver = pyo.SolverFactory("appsi_highs")
-    results = solver.solve(model, tee=True)
-    return solver, results
+    model.objective = pyo.Objective(rule=model_objective_rule, sense=pyo.minimize)    
+    return model
 
 station_pairs=get_station_pairs()
 airlink_edges=get_edges(station_pairs, "AirLink")
@@ -149,7 +146,10 @@ for l1, l2 in valid_location_pairs:
     outgoing_locations[l1].append(l2)
     incoming_locations[l2].append(l1)
 
-solver, results = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs,incoming_locations,outgoing_locations)
+model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs,incoming_locations,outgoing_locations)
+solver = pyo.SolverFactory("appsi_highs")
+results = solver.solve(model, tee=True)
+    
 
 #output results
 for station in model.STATIONS:
