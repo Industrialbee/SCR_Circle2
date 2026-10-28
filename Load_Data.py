@@ -85,8 +85,9 @@ def edge_end_location_rule(model, station1, station2, location2):
     
 def model_objective_rule(model):
     #sum of distances between pairs of stations sited at paired locations
+    location_pair_distances = {(l1, l2): location_pair_distance(location_lookup[l1], location_lookup[l2]) for l1, l2 in valid_location_pairs}
     return sum(
-        location_pair_distance(location_lookup[location1],location_lookup[location2])* model.z[station1,station2,location1,location2]  
+        location_pair_distances[location1, location2]* model.z[station1,station2,location1,location2]  
         for station1, station2 in model.EDGES for location1, location2 in model.LOCATION_PAIRS)
 
 def build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs,incoming_locations,outgoing_locations):
