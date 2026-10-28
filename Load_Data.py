@@ -3,6 +3,12 @@ import json
 import pyomo.environ as pyo
 import math
 
+#Parameters
+MAX_DISTANCE_MULTIPLIER = 3.0
+MAX_RING_DIFFERENCE = 2
+Station_pair_json_path="./data/station_pairs.json"
+Potential_stations_json_path="./Potential_Locations/potential_station_locations.json"
+
 def get_edges (station_pairs: list[str,str], operatorfilter:str="")-> list[tuple[str,str]]:
     #Get list of station pairs data. If operator name filter supplied then filter to that operator only
     if operatorfilter=="" :
@@ -16,6 +22,27 @@ def get_station_name_list(edges:list[str,str])->list[str]:
     stations_names = sorted({station for a, b in edges for station in (a, b)})
     return stations_names
 
+def location_pair_distance(location1, location2):
+    #calc euclidean distance between locations. Actual distance will be mix of arcs and radii (larger)
+    return math.hypot(location1["X"] - location2["X"],location1["Y"] - location2["Y"])
+
+def get_valid_location_pairs(locations, target_spacing, max_distance_multiplier, max_ring_difference):
+    valid_pairs = []
+    maximum_distance = (target_spacing * max_distance_multiplier)
+    for location1 in locations:
+        for location2 in locations:
+            #exclude where pair is same location 
+            if location1["Location"] == location2["Location"]:
+                continue            
+            #exclude where pair are further than max_ring_difference apart (no. of rings apart) 
+            if abs(location1["Ring"] - location2["Ring"]) > max_ring_difference:
+                continue
+            # exclude where pair are more than maximum_distance apart    
+            if location_pair_distance(location1,location2) > maximum_distance:
+                continue
+            valid_pairs.append((location1["Location"],location2["Location"]))
+    return valid_pairs
+    
 def one_location_per_station_rule(model, station):
     #A station occupies exactly one location
     return sum(model.x[station, location] for location in model.LOCATIONS) == 1
@@ -26,21 +53,12 @@ def one_station_per_location_rule(model, location):
 
 def edge_start_location_rule(model, station1, station2, location1):
     # If station1 of an edge is assigned to location1, exactly one z variable for that edge must start at location1.
-    return sum(model.z[station1, station2, location1, location2] for location2 in model.LOCATIONS) == model.x[station1, location1]
+        return sum(model.z[station1, station2, location1, location2] for location2 in outgoing_locations[location1]) == model.x[station1, location1]
 
 def edge_end_location_rule(model, station1, station2, location2):
     # If station2 of an edge is assigned to location2, exactly one z variable for that edge must end at location2.
-    return sum(model.z[station1, station2, location1, location2] for location1 in model.LOCATIONS ) == model.x[station2, location2]
+    return sum(model.z[station1, station2, location1, location2] for location1 in outgoing_locations[location2]) == model.x[station2, location2]
 
-#def one_pair_per_edges_rule(edge,location1, location2):
-    #A station pair occupies only one edge
- #   return sum(model.z[edge,location1, location2] for edge in model.EDGES) == 1
-
-def location_pair_distance(location1, location2):
-    #calc euclidean distance between locations. Actual distance will be mix of arcs and radii (larger)
-    loc1 = location_lookup[location1]
-    loc2 = location_lookup[location2]
-    return math.hypot(loc1["X"] - loc2["X"],loc1["Y"] - loc2["Y"] )
     
 def model_objective_rule (model):
     return sum(sum(sum(location_pair_distance(l1,l2)*model.z[e, l1, l2] for l2 in model.LOCATION2) for l1 in model.LOCATION1) for e in model.EDGES) 
@@ -50,33 +68,55 @@ def model_objective_rule(model):
         location_pair_distance(location1, location2)* model.z[station1,station2,location1,location2]  
         for station1, station2 in model.EDGES for location1 in model.LOCATIONS for location2 in model.LOCATIONS)
 
-with open("./data/station_pairs.json", "r", encoding="utf-8") as sp:
+#Get station pairs
+with open(Station_pair_json_path, "r", encoding="utf-8") as sp:
     station_pairs = json.load(sp)
 
 airlink_edges=get_edges(station_pairs, "AirLink")
 airlink_stations=get_station_name_list(airlink_edges)
-print(airlink_edges)
-print(airlink_stations)
 NoStations=len(airlink_stations)
+print("From station pairs file: ", Station_pair_json_path)
+print("Station pairs loaded: ", len(station_pairs))
+print("Station edges loaded: ", len(airlink_edges))
+print("Station names loaded: ", len(airlink_stations))
 
-with open(".//Potential_Locations/potential_station_locations.json", "r", encoding="utf-8") as pl: 
+#Get potential locations
+with open(Potential_stations_json_path, "r", encoding="utf-8") as pl: 
     potential_locations=json.load(pl)
 
 NoPotentialLocations=int(potential_locations["NoStations"])
-print(NoPotentialLocations)
+#an adjacent pair of stations may be at most X nominal station spacings apart
+maximum_distance_apart = ( MAX_DISTANCE_MULTIPLIER * potential_locations["TargetSpacing"])
+print("From station pairs file: ", Potential_stations_json_path)
+print("No of potential locations loaded: ", NoPotentialLocations)
+print("Maximum distance between adjacent stations constraint: ", maximum_distance_apart)
+
 
 #Build location lookup
 location_lookup = {row["Location"]: row for row in potential_locations["Locations"]}
 
-#StationLocationMx = np.zeros((len(airlink_stations), int(potential_locations["NoStations"])), dtype=int)
-#print(StationLocationMx)
+#Define list of valid (in near proximity) location pairs 
+valid_location_pairs = get_valid_location_pairs(potential_locations["Locations"], potential_locations["TargetSpacing"],MAX_DISTANCE_MULTIPLIER,MAX_RING_DIFFERENCE)
+
+#Create location names
+location_names = [row["Location"] for row in potential_locations["Locations"]]
+
+#Print valid location pairs count - check it works
+print(f"Valid location pairs: {len(valid_location_pairs):,} " f"of {len(location_names) ** 2:,}")
+print(f"z variables: "f"{len(airlink_edges) * len(valid_location_pairs):,}")
+
+#Compute neighbouring location lists
+outgoing_locations = {location: [] for location in location_names}
+incoming_locations = {location: [] for location in location_names}
+for l1, l2 in valid_location_pairs: 
+    outgoing_locations[l1].append(l2)
+    incoming_locations[l2].append(l1)
 
 #Define model
 model = pyo.ConcreteModel(name="Station placement")
 #model.x(NoStations, NoPotentialLocations)
 
-#Create location names then add location names / station names to model
-location_names = [row["Location"] for row in potential_locations["Locations"]]
+#Add location names / station names to model
 model.STATIONS = pyo.Set(initialize=airlink_stations,   ordered=True)
 model.LOCATIONS = pyo.Set(initialize=location_names,    ordered=True)
 
@@ -86,30 +126,19 @@ model.x = pyo.Var(model.STATIONS, model.LOCATIONS, within=pyo.Binary)
 model.one_location_per_station = pyo.Constraint( model.STATIONS, rule=one_location_per_station_rule)
 model.one_station_per_location = pyo.Constraint(model.LOCATIONS,   rule=one_station_per_location_rule)
 
-#Dummy objective - test valid model)
-#model.objective = pyo.Objective(expr=0, sense=pyo.minimize)
+model.LOCATION_PAIRS = pyo.Set(dimen=2, initialize=valid_location_pairs)
 
-#solver = pyo.SolverFactory("highs")
-#solver = pyo.SolverFactory("appsi_highs")
-#results = solver.solve(model, tee=True)
-
-#calculate edges (distance between stations)
-#model.LOCATION1 = model.LOCATIONS
-#model.LOCATION2 = model.LOCATIONS
 model.EDGES=pyo.Set(dimen=2, initialize=airlink_edges,    ordered=True)
-model.z=pyo.Var(model.EDGES, model.LOCATIONS, model.LOCATIONS, within=pyo.Binary)
+model.z=pyo.Var(model.EDGES, model.LOCATION_PAIRS, within=pyo.Binary)
 
-#model.one_station_pair_per_edges = pyo.Constraint( model.EDGES, rule=one_pair_per_edges_rule)
 model.edge_start_location = pyo.Constraint(model.EDGES,model.LOCATIONS,rule=edge_start_location_rule)
 model.edge_end_location = pyo.Constraint(model.EDGES,model.LOCATIONS,rule=edge_end_location_rule)
 
-#Real objective - minimise distance between the chosen location of A and the chosen location of B
-#min sum_e sum_{l_1} sum_{l_2} d_{l_1,l_2} ;z_{e,l_1,l_2}
-#model.objective = pyo.Objective(expr=0, sense=pyo.minimize)
 
+#Real objective - minimise distance between the chosen location of A and the chosen location of B
 model.objective = pyo.Objective(rule=model_objective_rule, sense=pyo.minimize)
 
-solver = pyo.SolverFactory("appsi_highs")
+#solver = pyo.SolverFactory("appsi_highs")
 results = solver.solve(model, tee=True)
 
 #output results
