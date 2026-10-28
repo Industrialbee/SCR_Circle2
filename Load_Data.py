@@ -4,11 +4,13 @@ import math
 
 #Parameters
 MAX_DISTANCE_MULTIPLIER = 3.0
-MAX_RING_DIFFERENCE = 2
+MAX_RING_DIFFERENCE = 1
 Station_pair_json_path="./data/station_pairs.json"
 Potential_stations_json_path="./Potential_Locations/potential_station_locations.json"
+MPS_path="./model_output/station_placement.mps"
+SOLVER_TIME_LIMIT=600 #seconds
 
-def get_station_pairs:
+def get_station_pairs():
     #Get station pairs
     with open(Station_pair_json_path, "r", encoding="utf-8") as sp:
         station_pairs = json.load(sp)
@@ -20,7 +22,7 @@ def print_station_pairs(station_pairs, airlink_edges, airlink_stations):
     print("Station edges loaded: ", len(airlink_edges))
     print("Station names loaded: ", len(airlink_stations))
 
-def get_potential_locations:
+def get_potential_locations():
     #Get potential locations
     with open(Potential_stations_json_path, "r", encoding="utf-8") as pl: 
         potential_locations=json.load(pl)
@@ -117,6 +119,10 @@ def build_model(airlink_stations, airlink_edges, location_names, valid_location_
     model.objective = pyo.Objective(rule=model_objective_rule, sense=pyo.minimize)    
     return model
 
+def ouput_mps(model):
+    model.write(MPS_path, format="mps",  io_options={"symbolic_solver_labels": True})
+    print("Model MPS file saved to: ",MPS_path) 
+
 station_pairs=get_station_pairs()
 airlink_edges=get_edges(station_pairs, "AirLink")
 airlink_stations=get_station_name_list(airlink_edges)
@@ -148,9 +154,11 @@ for l1, l2 in valid_location_pairs:
     incoming_locations[l2].append(l1)
 
 model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs,incoming_locations,outgoing_locations)
+ouput_mps(model)
 solver = pyo.SolverFactory("appsi_highs")
+solver.options["time_limit"] = SOLVER_TIME_LIMIT
 results = solver.solve(model, tee=True)
-    
+print("Termination:", results.solver.termination_condition)
 
 #output results
 for station in model.STATIONS:
