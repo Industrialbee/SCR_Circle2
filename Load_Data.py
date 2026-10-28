@@ -23,8 +23,9 @@ def get_station_name_list(edges:list[str,str])->list[str]:
     return stations_names
 
 def location_pair_distance(location1, location2):
+    #print(location1['X'], location1['Y'], location2['X'],location2['Y'])
     #calc euclidean distance between locations. Actual distance will be mix of arcs and radii (larger)
-    return math.hypot(location1["X"] - location2["X"],location1["Y"] - location2["Y"])
+    return math.hypot(float(location1['X']) - float(location2['X']),float(location1['Y']) - float(location2['Y']))
 
 def get_valid_location_pairs(locations, target_spacing, max_distance_multiplier, max_ring_difference):
     valid_pairs = []
@@ -57,16 +58,12 @@ def edge_start_location_rule(model, station1, station2, location1):
 
 def edge_end_location_rule(model, station1, station2, location2):
     # If station2 of an edge is assigned to location2, exactly one z variable for that edge must end at location2.
-    return sum(model.z[station1, station2, location1, location2] for location1 in outgoing_locations[location2]) == model.x[station2, location2]
-
+    return sum(model.z[station1, station2, location1, location2] for location1 in incoming_locations[location2]) == model.x[station2, location2]
     
-def model_objective_rule (model):
-    return sum(sum(sum(location_pair_distance(l1,l2)*model.z[e, l1, l2] for l2 in model.LOCATION2) for l1 in model.LOCATION1) for e in model.EDGES) 
-
 def model_objective_rule(model):
     return sum(
-        location_pair_distance(location1, location2)* model.z[station1,station2,location1,location2]  
-        for station1, station2 in model.EDGES for location1 in model.LOCATIONS for location2 in model.LOCATIONS)
+        location_pair_distance(location_lookup[location1],location_lookup[location2])* model.z[station1,station2,location1,location2]  
+        for station1, station2 in model.EDGES for location1, location2 in model.LOCATION_PAIRS)
 
 #Get station pairs
 with open(Station_pair_json_path, "r", encoding="utf-8") as sp:
@@ -138,7 +135,7 @@ model.edge_end_location = pyo.Constraint(model.EDGES,model.LOCATIONS,rule=edge_e
 #Real objective - minimise distance between the chosen location of A and the chosen location of B
 model.objective = pyo.Objective(rule=model_objective_rule, sense=pyo.minimize)
 
-#solver = pyo.SolverFactory("appsi_highs")
+solver = pyo.SolverFactory("appsi_highs")
 results = solver.solve(model, tee=True)
 
 #output results
