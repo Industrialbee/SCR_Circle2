@@ -1,7 +1,7 @@
 import json
 import pyomo.environ as pyo
-from pyomo.opt import SolverStatus, TerminationCondition
-import pyomo.contrib as pyc
+#from pyomo.opt import SolverStatus, TerminationCondition
+#import pyomo.contrib as pyc
 import math
 
 #Parameters
@@ -36,7 +36,7 @@ def print_potential_locations(potential_locations,maximum_distance_apart):
     print("No of potential locations loaded: ", int(potential_locations["NoStations"]))
     print("Maximum distance between adjacent stations constraint: ", maximum_distance_apart)
 
-def get_edges (station_pairs: list[tuple[str, str]], operatorfilter:str="")-> list[tuple[str,str]]:
+def get_edges(station_pairs: list[dict], operatorfilter: str = "") -> list[tuple[str, str]]:
     #Get list of station pairs data. If operator name filter supplied then filter to that operator only
     if operatorfilter=="" :
         airlink_edges = [(row["FirstStation"], row["SecondStation"]) for row in station_pairs]
