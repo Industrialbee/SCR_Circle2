@@ -3,6 +3,7 @@ import pyomo.environ as pyo
 #from pyomo.opt import SolverStatus, TerminationCondition
 #import pyomo.contrib as pyc
 import math
+from pathlib import Path
 
 #Parameters
 MAX_DISTANCE_MULTIPLIER = 3.0
@@ -15,6 +16,7 @@ SOLVER_TIME_LIMIT=60 #seconds
 Flag_Output_MPS=True
 Flag_Output_Results=True
 
+
 def get_station_pairs():
     #Get station pairs
     with open(Station_pair_json_path, "r", encoding="utf-8") as sp:
@@ -22,7 +24,7 @@ def get_station_pairs():
     return station_pairs
 
 def print_station_pairs(station_pairs, airlink_edges, airlink_stations):    
-    print("From station pairs file: ", Station_pair_json_path)
+    print("From potential locations file: ", Station_pair_json_path)
     print("Station pairs loaded: ", len(station_pairs))
     print("Station edges loaded: ", len(airlink_edges))
     print("Station names loaded: ", len(airlink_stations))
@@ -91,13 +93,11 @@ def edge_end_location_rule(model, station1, station2, location2):
     return sum(model.z[station1, station2, location1, location2] for location1 in incoming_locations[location2]) == model.x[station2, location2]
     
 def model_objective_rule(model):
-    #sum of distances between pairs of stations sited at paired locations
-    location_pair_distances = {(l1, l2): location_pair_distance(location_lookup[l1], location_lookup[l2]) for l1, l2 in valid_location_pairs}
     return sum(
         location_pair_distances[location1, location2]* model.z[station1,station2,location1,location2]  
         for station1, station2 in model.EDGES for location1, location2 in model.LOCATION_PAIRS)
 
-def build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs):
+def build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances ):
     #Define model
     model = pyo.ConcreteModel(name="Station placement")
     
@@ -144,6 +144,8 @@ def  output_assignments(assignments):
         json.dump(assignments, f, indent=2)
     print("Station assignments file saved to: ",Assignment_path) 
 
+Path("./model_output").mkdir(parents=True, exist_ok=True)
+
 station_pairs=get_station_pairs()
 airlink_edges=get_edges(station_pairs, "AirLink")
 airlink_stations=get_station_name_list(airlink_edges)
@@ -174,7 +176,10 @@ for l1, l2 in valid_location_pairs:
     outgoing_locations[l1].append(l2)
     incoming_locations[l2].append(l1)
 
-model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs)
+#sum of distances between pairs of stations sited at paired locations
+location_pair_distances = {(l1, l2): location_pair_distance(location_lookup[l1], location_lookup[l2]) for l1, l2 in valid_location_pairs}
+    
+model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances )
 if Flag_Output_MPS==True:
     output_mps(model)
 solver = pyo.SolverFactory("appsi_highs")
