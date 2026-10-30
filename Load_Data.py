@@ -1,7 +1,7 @@
 import json
 import pyomo.environ as pyo
 #from pyomo.opt import SolverStatus, TerminationCondition
-#import pyomo.contrib as pyc
+s#import pyomo.contrib as pyc
 import math
 
 #Parameters
@@ -12,6 +12,8 @@ Potential_stations_json_path="./Potential_Locations/potential_station_locations.
 MPS_path="./model_output/station_placement.mps"
 Assignment_path="./model_output/station_assignments.json"
 SOLVER_TIME_LIMIT=60 #seconds
+Flag_Output_MPS=True
+Flag_Output_Results=True
 
 def get_station_pairs():
     #Get station pairs
@@ -173,17 +175,25 @@ for l1, l2 in valid_location_pairs:
     incoming_locations[l2].append(l1)
 
 model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs)
-output_mps(model)
+if Flag_Output_MPS==True:
+    output_mps(model)
 solver = pyo.SolverFactory("appsi_highs")
 solver.options["time_limit"] = SOLVER_TIME_LIMIT
-results = solver.solve(model, tee=True)
-print("Termination:", results.solver.termination_condition)
 
-print("*********************************")
-print(results)
-print("*********************************")
-print(solver)
-print("*********************************")
+results = solver.solve(model,tee=True,load_solutions=False)
+print("Termination:",results.solver.termination_condition)
+if len(results.solution) > 0:
+    model.solutions.load_from(results)
+    assignments = get_station_assignments(model, location_lookup)
+    output_assignments(assignments)
+else:
+    print("No feasible solution found.")
+
+#results = solver.solve(model, tee=True)
+#print("Termination:", results.solver.termination_condition)
+
+if Flag_Output_Results==true:
+    print(results)
 
 #if results.has_feasible_solution()==True:
 #   model.solutions.load_from(results)
