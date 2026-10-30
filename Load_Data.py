@@ -1,7 +1,7 @@
 import json
 import pyomo.environ as pyo
 #from pyomo.opt import SolverStatus, TerminationCondition
-s#import pyomo.contrib as pyc
+#import pyomo.contrib as pyc
 import math
 
 #Parameters
@@ -192,15 +192,11 @@ else:
 #results = solver.solve(model, tee=True)
 #print("Termination:", results.solver.termination_condition)
 
-if Flag_Output_Results==true:
+if Flag_Output_Results==True:
     print(results)
 
 #if results.has_feasible_solution()==True:
 #   model.solutions.load_from(results)
 #else:
  #   print("No feasible solution found.")
-    
-#output results
-assignments = get_station_assignments(model, location_lookup)
-output_assignments(assignments)
 
