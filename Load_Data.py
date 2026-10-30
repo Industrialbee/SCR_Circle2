@@ -1,5 +1,7 @@
 import json
 import pyomo.environ as pyo
+from pyomo.opt import SolverStatus, TerminationCondition
+import pyomo.contrib as pyc
 import math
 
 #Parameters
@@ -8,7 +10,8 @@ MAX_RING_DIFFERENCE = 1
 Station_pair_json_path="./data/station_pairs.json"
 Potential_stations_json_path="./Potential_Locations/potential_station_locations.json"
 MPS_path="./model_output/station_placement.mps"
-SOLVER_TIME_LIMIT=600 #seconds
+Assignment_path="./model_output/station_assignments.json"
+SOLVER_TIME_LIMIT=60 #seconds
 
 def get_station_pairs():
     #Get station pairs
@@ -33,7 +36,7 @@ def print_potential_locations(potential_locations,maximum_distance_apart):
     print("No of potential locations loaded: ", int(potential_locations["NoStations"]))
     print("Maximum distance between adjacent stations constraint: ", maximum_distance_apart)
 
-def get_edges (station_pairs: list[str,str], operatorfilter:str="")-> list[tuple[str,str]]:
+def get_edges (station_pairs: list[tuple[str, str]], operatorfilter:str="")-> list[tuple[str,str]]:
     #Get list of station pairs data. If operator name filter supplied then filter to that operator only
     if operatorfilter=="" :
         airlink_edges = [(row["FirstStation"], row["SecondStation"]) for row in station_pairs]
@@ -41,7 +44,7 @@ def get_edges (station_pairs: list[str,str], operatorfilter:str="")-> list[tuple
         airlink_edges = [(row["FirstStation"], row["SecondStation"]) for row in station_pairs if row["Operator"] == operatorfilter]
     return airlink_edges
 
-def get_station_name_list(edges:list[str,str])->list[str]:    
+def get_station_name_list(edges:list[tuple[str, str]])->list[str]:    
     #List of stations in operator routes
     stations_names = sorted({station for a, b in edges for station in (a, b)})
     return stations_names
@@ -92,7 +95,7 @@ def model_objective_rule(model):
         location_pair_distances[location1, location2]* model.z[station1,station2,location1,location2]  
         for station1, station2 in model.EDGES for location1, location2 in model.LOCATION_PAIRS)
 
-def build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs,incoming_locations,outgoing_locations):
+def build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs):
     #Define model
     model = pyo.ConcreteModel(name="Station placement")
     
@@ -119,9 +122,25 @@ def build_model(airlink_stations, airlink_edges, location_names, valid_location_
     model.objective = pyo.Objective(rule=model_objective_rule, sense=pyo.minimize)    
     return model
 
-def ouput_mps(model):
+def output_mps(model):
     model.write(MPS_path, format="mps",  io_options={"symbolic_solver_labels": True})
     print("Model MPS file saved to: ",MPS_path) 
+
+def get_station_assignments(model, location_lookup):
+    assignments = []
+    for station in model.STATIONS:
+        for location in model.LOCATIONS:
+            if pyo.value(model.x[station, location]) > 0.5:
+                loc = location_lookup[location]
+                assignments.append({"Station": station, "Location": location, "Ring": loc["Ring"], "Slot": loc["Slot"], "X": loc["X"], "Y": loc["Y"]})
+    return assignments
+
+def  output_assignments(assignments):
+    for row in assignments:
+        print(row["Station"], "->", row["Location"])
+    with open(Assignment_path,"w",encoding="utf-8") as f:
+        json.dump(assignments, f, indent=2)
+    print("Station assignments file saved to: ",Assignment_path) 
 
 station_pairs=get_station_pairs()
 airlink_edges=get_edges(station_pairs, "AirLink")
@@ -153,16 +172,25 @@ for l1, l2 in valid_location_pairs:
     outgoing_locations[l1].append(l2)
     incoming_locations[l2].append(l1)
 
-model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs,incoming_locations,outgoing_locations)
-ouput_mps(model)
+model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs)
+output_mps(model)
 solver = pyo.SolverFactory("appsi_highs")
 solver.options["time_limit"] = SOLVER_TIME_LIMIT
 results = solver.solve(model, tee=True)
 print("Termination:", results.solver.termination_condition)
 
+print("*********************************")
+print(results)
+print("*********************************")
+print(solver)
+print("*********************************")
+
+#if results.has_feasible_solution()==True:
+#   model.solutions.load_from(results)
+#else:
+ #   print("No feasible solution found.")
+    
 #output results
-for station in model.STATIONS:
-    for location in model.LOCATIONS:
-        if pyo.value(model.x[station, location]) > 0.5:
-            print(station, "->", location)
+assignments = get_station_assignments(model, location_lookup)
+output_assignments(assignments)
 

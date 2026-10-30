@@ -1,0 +1,114 @@
+[
+  {
+    "Station": "Airport Central",
+    "Location": "R0001_S00010",
+    "Ring": 1,
+    "Slot": 10,
+    "X": 2.410733605106464,
+    "Y": -19.85417748196108
+  },
+  {
+    "Station": "Airport Parkway",
+    "Location": "R0001_S00012",
+    "Ring": 1,
+    "Slot": 12,
+    "X": 17.7091205130642,
+    "Y": -9.294463440875369
+  },
+  {
+    "Station": "Berrily",
+    "Location": "R0002_S00018",
+    "Ring": 2,
+    "Slot": 18,
+    "X": 29.590839102081674,
+    "Y": -4.937837708422012
+  },
+  {
+    "Station": "Elsemere Junction",
+    "Location": "R0002_S00017",
+    "Ring": 2,
+    "Slot": 17,
+    "X": 26.384212536194664,
+    "Y": -14.278421791112224
+  },
+  {
+    "Station": "Hampton Hargate",
+    "Location": "R0001_S00001",
+    "Ring": 1,
+    "Slot": 1,
+    "X": 17.7091205130642,
+    "Y": 9.29446344087537
+  },
+  {
+    "Station": "Leighton Stepford Road",
+    "Location": "R0002_S00014",
+    "Ring": 2,
+    "Slot": 14,
+    "X": 2.4773803641699708,
+    "Y": -29.897534790200094
+  },
+  {
+    "Station": "Morganstown",
+    "Location": "R0002_S00016",
+    "Ring": 2,
+    "Slot": 16,
+    "X": 20.318447148772236,
+    "Y": -22.071717320193947
+  },
+  {
+    "Station": "St Helens Bridge",
+    "Location": "R0002_S00015",
+    "Ring": 2,
+    "Slot": 15,
+    "X": 12.05086273958906,
+    "Y": -27.47319979965173
+  },
+  {
+    "Station": "Stepford Central",
+    "Location": "R0001_S00000",
+    "Ring": 1,
+    "Slot": 0,
+    "X": 20.0,
+    "Y": 0.0
+  },
+  {
+    "Station": "Stepford East",
+    "Location": "R0002_S00001",
+    "Ring": 2,
+    "Slot": 1,
+    "X": 26.38421253619467,
+    "Y": 14.278421791112207
+  },
+  {
+    "Station": "Terminal 1",
+    "Location": "R0001_S00011",
+    "Ring": 1,
+    "Slot": 11,
+    "X": 11.361294934623096,
+    "Y": -16.45967731787314
+  },
+  {
+    "Station": "Terminal 2",
+    "Location": "R0002_S00013",
+    "Ring": 2,
+    "Slot": 13,
+    "X": -7.364564614223974,
+    "Y": -29.08200797817991
+  },
+  {
+    "Station": "Terminal 3",
+    "Location": "R0001_S00008",
+    "Ring": 1,
+    "Slot": 8,
+    "X": -14.970214963422027,
+    "Y": -13.262453164815899
+  },
+  {
+    "Station": "Water Newton",
+    "Location": "R0001_S00009",
+    "Ring": 1,
+    "Slot": 9,
+    "X": -7.092097740850718,
+    "Y": -18.700324853708295
+  }
+]
