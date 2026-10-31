@@ -4,6 +4,7 @@ import pyomo.environ as pyo
 #import pyomo.contrib as pyc
 import math
 from pathlib import Path
+from collections import Counter
 
 #Parameters
 MAX_DISTANCE_MULTIPLIER = 3.0
@@ -12,9 +13,12 @@ Station_pair_json_path="./data/station_pairs.json"
 Potential_stations_json_path="./Potential_Locations/potential_station_locations.json"
 MPS_path="./model_output/station_placement.mps"
 Assignment_path="./model_output/station_assignments.json"
-SOLVER_TIME_LIMIT=60 #seconds
+SOLVER_TIME_LIMIT=120 #seconds
 Flag_Output_MPS=True
 Flag_Output_Results=True
+KEY_STATION_MODE = "manual"   # "manual" or "degree"
+KEY_STATION = "Stepford Central"
+#KEY_STATION = None
 
 
 def get_station_pairs():
@@ -34,7 +38,18 @@ def get_potential_locations():
     with open(Potential_stations_json_path, "r", encoding="utf-8") as pl: 
         potential_locations=json.load(pl)
     return potential_locations
-    
+
+def get_reference_locations(locations):
+    #for each ring, find the location with the smallest theta (closest to the vertical axis?)
+    by_ring = {}
+    for location in locations:
+        ring = location["Ring"]
+        theta_distance = min(location["Theta"],  2 * math.pi - location["Theta"] )
+        if (ring not in by_ring  or theta_distance < by_ring[ring][0] ):
+            by_ring[ring] = (theta_distance, location["Location"] )
+    return [value[1] for value in by_ring.values() ]
+
+
 def print_potential_locations(potential_locations,maximum_distance_apart):
     print("From station pairs file: ", Potential_stations_json_path)
     print("No of potential locations loaded: ", int(potential_locations["NoStations"]))
@@ -91,13 +106,16 @@ def edge_start_location_rule(model, station1, station2, location1):
 def edge_end_location_rule(model, station1, station2, location2):
     # If station2 of an edge is assigned to location2, exactly one z variable for that edge must end at location2.
     return sum(model.z[station1, station2, location1, location2] for location1 in incoming_locations[location2]) == model.x[station2, location2]
-    
+
+def key_station_reference_rule(model):
+    return sum(model.x[model.KEY_STATION, location] for location in reference_locations) == 1
+
 def model_objective_rule(model):
     return sum(
         location_pair_distances[location1, location2]* model.z[station1,station2,location1,location2]  
         for station1, station2 in model.EDGES for location1, location2 in model.LOCATION_PAIRS)
 
-def build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances ):
+def build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,key_station ):
     #Define model
     model = pyo.ConcreteModel(name="Station placement")
     
@@ -107,6 +125,7 @@ def build_model(airlink_stations, airlink_edges, location_names, valid_location_
 
     model.LOCATION_PAIRS = pyo.Set(dimen=2, initialize=valid_location_pairs)
     model.EDGES=pyo.Set(dimen=2, initialize=airlink_edges,    ordered=True)
+    model.KEY_STATION=pyo.Param(initialize=key_station)
     
     #Create a station * location binary matrix
     model.x = pyo.Var(model.STATIONS, model.LOCATIONS, within=pyo.Binary)
@@ -120,6 +139,9 @@ def build_model(airlink_stations, airlink_edges, location_names, valid_location_
     model.edge_start_location = pyo.Constraint(model.EDGES,model.LOCATIONS,rule=edge_start_location_rule)
     model.edge_end_location = pyo.Constraint(model.EDGES,model.LOCATIONS,rule=edge_end_location_rule)
     
+    #"Key station" constraint - fixes this station to smallest theta, not smallest ring) - reduces rotational freedom of model 
+    model.key_station_reference = pyo.Constraint(rule=key_station_reference_rule)
+       
     #Real objective - minimise distance between the chosen location of A and the chosen location of B
     model.objective = pyo.Objective(rule=model_objective_rule, sense=pyo.minimize)    
     return model
@@ -143,6 +165,21 @@ def  output_assignments(assignments):
     with open(Assignment_path,"w",encoding="utf-8") as f:
         json.dump(assignments, f, indent=2)
     print("Station assignments file saved to: ",Assignment_path) 
+
+def get_key_station(edges, mode="degree", key_station=None):
+    #If key_station not already defined by user then find statoin with highest degree of connections
+    if mode == "manual":
+        if key_station is None:
+            raise ValueError("manual_station must be supplied in manual mode")
+        return key_station
+    elif mode == "degree":
+        degree = {}
+        for station1, station2 in edges:
+            degree[station1] = degree.get(station1, 0) + 1
+            degree[station2] = degree.get(station2, 0) + 1
+        return max( degree, key=lambda station: (degree[station], station))
+    else:
+        raise ValueError(f"Unknown key station mode: {mode}")
 
 Path("./model_output").mkdir(parents=True, exist_ok=True)
 
@@ -178,8 +215,12 @@ for l1, l2 in valid_location_pairs:
 
 #sum of distances between pairs of stations sited at paired locations
 location_pair_distances = {(l1, l2): location_pair_distance(location_lookup[l1], location_lookup[l2]) for l1, l2 in valid_location_pairs}
-    
-model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances )
+
+#Get reference locations and key station
+reference_locations=get_reference_locations( potential_locations["Locations"])
+KEY_STATION=get_key_station(airlink_edges, mode="degree", key_station=KEY_STATION)
+ 
+model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,KEY_STATION )
 if Flag_Output_MPS==True:
     output_mps(model)
 solver = pyo.SolverFactory("appsi_highs")

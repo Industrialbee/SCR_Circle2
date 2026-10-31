@@ -27,10 +27,6 @@ def load_json(path):
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
-station_pairs = load_json(STATION_PAIRS_PATH)
-potential_locations = load_json(POTENTIAL_LOCATIONS_PATH)
-assignments = load_json(ASSIGNMENTS_PATH)
-
 def build_assignment_lookup(assignments):
     return {row["Station"]: row for row in assignments}
 
@@ -55,7 +51,7 @@ def plot_edges(ax, edges, assignment_lookup):
     for station1, station2 in edges:
         loc1 = assignment_lookup[station1]
         loc2 = assignment_lookup[station2]
-        ax.plot([loc1["X"], loc2["X"]], [loc1["Y"], loc2["Y"]], linewidth=1.5, zorder=2 )
+        ax.plot([loc1["X"], loc2["X"]], [loc1["Y"], loc2["Y"]], linewidth=1.5, color="green",zorder=2 )
 
 # Draw stations
 def plot_stations(ax, assignments):
