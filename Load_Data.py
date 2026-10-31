@@ -16,7 +16,7 @@ Assignment_path="./model_output/station_assignments.json"
 SOLVER_TIME_LIMIT=120 #seconds
 Flag_Output_MPS=True
 Flag_Output_Results=True
-KEY_STATION_MODE = "manual"   # "manual" or "degree"
+KEY_STATION_MODE = "degree"   # "manual" or "degree"
 KEY_STATION = "Stepford Central"
 #KEY_STATION = None
 
@@ -40,15 +40,14 @@ def get_potential_locations():
     return potential_locations
 
 def get_reference_locations(locations):
-    #for each ring, find the location with the smallest theta (closest to the vertical axis?)
+    #for each ring, find the location with the smallest theta (closest to the horizontal axis)
     by_ring = {}
     for location in locations:
         ring = location["Ring"]
         theta_distance = min(location["Theta"],  2 * math.pi - location["Theta"] )
         if (ring not in by_ring  or theta_distance < by_ring[ring][0] ):
             by_ring[ring] = (theta_distance, location["Location"] )
-    return [value[1] for value in by_ring.values() ]
-
+    return [by_ring[ring][1] for ring in sorted(by_ring)]
 
 def print_potential_locations(potential_locations,maximum_distance_apart):
     print("From station pairs file: ", Potential_stations_json_path)
@@ -218,8 +217,11 @@ location_pair_distances = {(l1, l2): location_pair_distance(location_lookup[l1],
 
 #Get reference locations and key station
 reference_locations=get_reference_locations( potential_locations["Locations"])
-KEY_STATION=get_key_station(airlink_edges, mode="degree", key_station=KEY_STATION)
- 
+KEY_STATION=get_key_station(airlink_edges,  mode=KEY_STATION_MODE, key_station=KEY_STATION)
+print("Key station:", KEY_STATION)
+print("Reference locations:", reference_locations)
+        
+        
 model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,KEY_STATION )
 if Flag_Output_MPS==True:
     output_mps(model)
