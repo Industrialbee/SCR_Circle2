@@ -240,6 +240,11 @@ def get_valid_station_locations(stations, locations, station_degree, location_ne
                 valid_station_locations.append((station, location))
     return valid_station_locations
 
+def check_combined_neighbour_capacity(station1, station2, location1, location2, station_neighbours, location_neighbours):
+    required_neighbours = (station_neighbours[station1] | station_neighbours[station2] ) - {station1, station2}
+    available_locations = (location_neighbours[location1] | location_neighbours[location2]  ) - {location1, location2}
+    return (len(available_locations)>= len(required_neighbours)  )
+
 def get_valid_z_indices(edges, valid_location_pairs, eligible_locations, station_neighbours, location_neighbours):
     valid_z = []
     for station1, station2 in edges:
@@ -249,6 +254,8 @@ def get_valid_z_indices(edges, valid_location_pairs, eligible_locations, station
             if location2 not in eligible_locations[station2]:
                 continue
             if not check_common_neighbours_count(station1, station2, location1, location2, station_neighbours, location_neighbours):
+                continue
+            if not check_combined_neighbour_capacity(station1, station2, location1, location2, station_neighbours, location_neighbours):
                 continue
             valid_z.append((station1, station2, location1, location2 ))
     return valid_z
@@ -328,6 +335,19 @@ print(f"Dense z: {dense_z:,}")
 print(f"Pruned z: {len(valid_z):,}")
 print(f"x retained: " f"{100 * len(valid_station_locations) / dense_x:.1f}%")
 print(f"z retained: " f"{100 * len(valid_z) / dense_z:.1f}%")
+
+required_counts = []
+available_counts = []
+
+for station1, station2 in airlink_edges:
+    required = (station_neighbours[station1] | station_neighbours[station2]) - {station1, station2}
+    for location1, location2 in valid_location_pairs:
+        available = (location_neighbours[location1] | location_neighbours[location2]) - {location1, location2}
+        required_counts.append(len(required))
+        available_counts.append(len(available))
+
+print("Required edge-neighbour slots:", min(required_counts), max(required_counts))
+print("Available candidate slots:", min(available_counts), max(available_counts))
 
 #model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,KEY_STATION )
 #if Flag_Output_MPS==True:
