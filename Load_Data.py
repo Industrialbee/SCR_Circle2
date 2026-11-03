@@ -197,8 +197,8 @@ def get_key_station(edges, mode="degree", key_station=None):
 #    #Get number of stations that "station" connects to    
 #    return sum(station in stat for stat in edges)
 
-def get_count_station_degree(station, neighbours):
-    return {station: len(neighbours) for station, neighbours in station_neighbours.items()}
+#def get_count_station_degree(station, neighbours):
+#    return {station: len(neighbours) for station, neighbours in station_neighbours.items()}
 
 #def get_valid_location_count(locations, valid_location_pairs):     
 #count number of valid locations that are reachable from each location
@@ -214,44 +214,17 @@ def get_count_station_degree(station, neighbours):
 #    else: 
 #        return False
 
-def check_feasible_location(station, neighbours, location, location_neighbour_count):
-#for station, check if number of reachable locations >= number of connecting stations    
-#    return (location_neighbour_count[location]>= station_degree[station]    )
-    return (location_neighbour_count[location]>=get_count_station_degree(station, neighbours))
+def check_feasible_location(station, location, station_degree, location_neighbour_count):
+    #for station, check if number of reachable locations >= number of connecting stations    
+    return (location_neighbour_count[location] >= station_degree[station] )
 
 def get_station_neighbours(stations, edges):
     #find list of stations that are connected to station
-    #neighbours = {station: set() for station in stations}
-    #for station1, station2 in edges:
-    #    neighbours[station1].add(station2)
-    #    neighbours[station2].add(station1)
-    #return neighbours    
     station_neighbours = {station: set() for station in stations}
     for station1, station2 in edges:
         station_neighbours[station1].add(station2)
         station_neighbours[station2].add(station1)
     return station_neighbours
-    
-#def generate_neighbour_stations(station, edges):
-#    #find list of stations that are connected to station
-#    neighbours=[]
-#    for station1, station2 in edges:
-#        if station1==station:
-#            neighbours.append(station2)
-#        elif station2==station:
-#            neighbours.append(station1)    
-#    return neighbours
-    
-def generate_neighbour_locations(location, valid_location_pairs):
-    neighbours=[]
-    location_neighbours = {location: set() for location in location_names}
-    for loc1, loc2 in valid_location_pairs:
-        location_neighbours[location1].add(location2)
-        #if loc1==location:
-        #    neighbours.append(loc2)
-        #elif loc2==location:
-        #    neighbours.append(loc1)
-    return neighbours 
 
 def check_common_neighbours_count(station1, station2,location1, location2,station_neighbours,location_neighbours):
     #check if there are at least as many valid locations reachable from both location1 and location2 as there are stations connected to station1 and station2
@@ -259,21 +232,13 @@ def check_common_neighbours_count(station1, station2,location1, location2,statio
     common_locations = (location_neighbours[location1] & location_neighbours[location2] )
     return (len(common_locations) >= len(common_stations))
 
-def check_common_neighbours(stations, edges, locations, valid_location_pairs):
-    z=[]
-    for station1, station2 in edges:
-        for location1, location2 in valid_location_pairs:
-            if check_common_neighbours_count(station1, station2,edges,location1, location2,valid_location_pairs)==True:
-                z.append(station1, station2,location1,location2)
-    return z
-
-def check_station_location(stations, neighbours, locations, valid_location_pairs):
-    x=[]
+def get_valid_station_locations(stations, locations, station_degree, location_neighbour_count):
+    valid_station_locations = []
     for station in stations:
         for location in locations:
-            if check_feasible_location(station, neighbours, location, valid_locations) ==True:
-                x.append((station, location))
-    return x
+            if check_feasible_location(station, location, station_degree, location_neighbour_count):
+                valid_station_locations.append((station, location))
+    return valid_station_locations
 
 def get_valid_z_indices(edges, valid_location_pairs, eligible_locations, station_neighbours, location_neighbours):
     valid_z = []
@@ -287,7 +252,7 @@ def get_valid_z_indices(edges, valid_location_pairs, eligible_locations, station
                 continue
             valid_z.append((station1, station2, location1, location2 ))
     return valid_z
-
+    
 Path("./model_output").mkdir(parents=True, exist_ok=True)
 
 station_pairs=get_station_pairs()
@@ -317,24 +282,37 @@ print(f"Valid location pairs: {len(valid_location_pairs):,} " f"of {len(location
 print(f"z variables: "f"{len(airlink_edges) * len(valid_location_pairs):,}")
 
 #Compute neighbouring location lists
-outgoing_locations = {location: [] for location in location_names}
-incoming_locations = {location: [] for location in location_names}
-for l1, l2 in valid_location_pairs: 
-    outgoing_locations[l1].append(l2)
-    incoming_locations[l2].append(l1)
-
-#sum of distances between pairs of stations sited at paired locations
-location_pair_distances = {(l1, l2): location_pair_distance(location_lookup[l1], location_lookup[l2]) for l1, l2 in valid_location_pairs}
-station_neighbours=get_station_neighbours(airlink_stations, airlink_edges)
+outgoing_locations = {location: set() for location in location_names}
+incoming_locations = {location: set() for location in location_names}
+for location1, location2 in valid_location_pairs:
+    outgoing_locations[location1].add(location2)
+    incoming_locations[location2].add(location1)
+location_neighbours = outgoing_locations
 
 #Create count of number of valid locations reachable from each location
 location_neighbour_count = {location: len(neighbours) for location, neighbours in outgoing_locations.items()}
 
-eligible_locations = {station: set() for station in airlink_stations}
+#sum of distances between pairs of stations sited at paired locations
+#location_pair_distances = {(l1, l2): location_pair_distance(location_lookup[l1], location_lookup[l2]) for l1, l2 in valid_location_pairs}
+station_neighbours=get_station_neighbours(airlink_stations, airlink_edges)
+station_degree = {station: len(neighbours) for station, neighbours in station_neighbours.items()}
+valid_station_locations = get_valid_station_locations(airlink_stations,location_names,station_degree,location_neighbour_count)
+print("Station degrees:")
 for station in airlink_stations:
-    for location in location_names:
-        if (location_neighbour_count[location]>= station_degree[station]):
-            eligible_locations[station].add(location)
+    print(station, station_degree[station])
+
+eligible_locations = {station: set() for station in airlink_stations}
+for station, location in valid_station_locations:
+    eligible_locations[station].add(location)
+    
+#for station in airlink_stations:
+#    for location in location_names:
+#        if (location_neighbour_count[location]>= station_degree[station]):
+#            eligible_locations[station].add(location)
+
+valid_z = get_valid_z_indices(airlink_edges, valid_location_pairs, eligible_locations, station_neighbours, location_neighbours)
+
+
 
 #Get reference locations and key station
 reference_locations=get_reference_locations( potential_locations["Locations"])
@@ -342,30 +320,35 @@ KEY_STATION=get_key_station(airlink_edges,  mode=KEY_STATION_MODE, key_station=K
 print("Key station:", KEY_STATION)
 print("Reference locations:", reference_locations)
 
-print("Dense z:", len(airlink_edges) * len(valid_location_pairs))
-print("Valid station/location x:", sum(len(v) for v in eligible_locations.values()))
-print("Pruned z:", len(valid_z))
+dense_x = (len(airlink_stations) * len(location_names))
+dense_z = (len(airlink_edges)  * len(valid_location_pairs))
+print(f"Dense x: {dense_x:,}")
+print(f"Valid station/location x: " f"{len(valid_station_locations):,}")
+print(f"Dense z: {dense_z:,}")
+print(f"Pruned z: {len(valid_z):,}")
+print(f"x retained: " f"{100 * len(valid_station_locations) / dense_x:.1f}%")
+print(f"z retained: " f"{100 * len(valid_z) / dense_z:.1f}%")
 
 #model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,KEY_STATION )
-if Flag_Output_MPS==True:
-    output_mps(model)
-solver = pyo.SolverFactory("appsi_highs")
-solver.options["time_limit"] = SOLVER_TIME_LIMIT
-
-results = solver.solve(model,tee=True,load_solutions=False)
-print("Termination:",results.solver.termination_condition)
-if len(results.solution) > 0:
-    model.solutions.load_from(results)
-    assignments = get_station_assignments(model, location_lookup)
-    output_assignments(assignments)
-else:
-    print("No feasible solution found.")
-
+#if Flag_Output_MPS==True:
+#    output_mps(model)
+#solver = pyo.SolverFactory("appsi_highs")
+#solver.options["time_limit"] = SOLVER_TIME_LIMIT
+#
+#results = solver.solve(model,tee=True,load_solutions=False)
+#print("Termination:",results.solver.termination_condition)
+#if len(results.solution) > 0:
+#    model.solutions.load_from(results)
+#    assignments = get_station_assignments(model, location_lookup)
+#    output_assignments(assignments)
+#else:
+#    print("No feasible solution found.")
+#
 #results = solver.solve(model, tee=True)
 #print("Termination:", results.solver.termination_condition)
-
-if Flag_Output_Results==True:
-    print(results)
+#
+#if Flag_Output_Results==True:
+#    print(results)
 
 #if results.has_feasible_solution()==True:
 #   model.solutions.load_from(results)
