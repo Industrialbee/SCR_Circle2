@@ -72,6 +72,18 @@ def location_pair_distance(location1, location2):
     #calc euclidean distance between locations. Actual distance will be mix of arcs and radii (larger)
     return math.hypot(float(location1['X']) - float(location2['X']),float(location1['Y']) - float(location2['Y']))
 
+def check_valid_location(location1, location2, maximum_distance, max_ring_difference):
+    #exclude where pair is same location 
+    if location1["Location"] == location2["Location"]:
+        return False            
+    #exclude where pair are further than max_ring_difference apart (no. of rings apart) 
+    if abs(location1["Ring"] - location2["Ring"]) > max_ring_difference:
+        return False
+    # exclude where pair are more than maximum_distance apart    
+    if location_pair_distance(location1,location2) > maximum_distance:
+        return False
+    return True
+
 def get_valid_location_pairs(locations, target_spacing, max_distance_multiplier, max_ring_difference):
     #get valid locations. rather than compare every location (n^2), restrict to those in proximity
     valid_pairs = []
@@ -79,15 +91,16 @@ def get_valid_location_pairs(locations, target_spacing, max_distance_multiplier,
     for location1 in locations:
         for location2 in locations:
             #exclude where pair is same location 
-            if location1["Location"] == location2["Location"]:
-                continue            
+            #if location1["Location"] == location2["Location"]:
+            #    continue            
             #exclude where pair are further than max_ring_difference apart (no. of rings apart) 
-            if abs(location1["Ring"] - location2["Ring"]) > max_ring_difference:
-                continue
+            #if abs(location1["Ring"] - location2["Ring"]) > max_ring_difference:
+            #    continue
             # exclude where pair are more than maximum_distance apart    
-            if location_pair_distance(location1,location2) > maximum_distance:
-                continue
-            valid_pairs.append((location1["Location"],location2["Location"]))
+            #if location_pair_distance(location1,location2) > maximum_distance:
+            #    continue
+            if check_valid_location(location1, location2, maximum_distance, max_ring_difference)==True:
+                valid_pairs.append((location1["Location"],location2["Location"]))
     return valid_pairs
     
 def one_location_per_station_rule(model, station):
@@ -180,6 +193,75 @@ def get_key_station(edges, mode="degree", key_station=None):
     else:
         raise ValueError(f"Unknown key station mode: {mode}")
 
+def get_count_station_degree(edges, station):
+    #Get number of stations that "station" connects to    
+    return sum(station in stat for stat in edges)
+
+def get_valid_location_count(locations, valid_location_pairs):     
+    #count number of valid locations that are reachable from each location
+    location_count={}    
+    for loc in locations:   
+        location_count[loc]=sum(loc in locs for locs in valid_location_pairs)
+    return location_count
+
+def check_feasible_location(station, edges, location, valid_locations):
+    #for station, check if number of reachable locations >= number of connecting stations    
+    if valid_location_count(location,valid_locations)>=get_count_station_degree(edges, station):
+        return True
+    else: 
+        return False
+
+def generate_neighbour_stations(station, edges):
+    #find list of stations that are connected to station
+    neighbours=[]
+    for station1, station2 in edges:
+        if station1==station:
+            neighbours.append(station2)
+        elif station2==station:
+            neighbours.append(station1)    
+    return neighbours
+    
+def generate_neighbour_locations(location, valid_location_pairs):
+    neighbours=[]
+    for loc1, loc2 in valid_location_pairs:
+        if loc1==location:
+            neighbours.append[loc2]
+        elif loc2==location:
+            neighbours.append[loc1]
+    return neighbours 
+    
+def check_common_neighbours_count(station1, station2,edges,location1, location2,valid_location_pairs):
+    #check if there are at least as many valid locations reachable from both location1 and location2 as there are stations connected to station1 and station2 
+    station_neighbourhood1=generate_neighbour_stations(station1, edges)
+    station_neighbourhood2=generate_neighbour_stations(station2, edges)
+    #remove duplicates and get list of connected (1st degree) in common
+    station_neighbourhood=list(set(station_neighbourhood1).intersection(set(station_neighbourhood2)))
+    
+    location_neighbourhood1=generate_neighbour_locations(location1, valid_location_pairs)
+    location_neighbourhood2=generate_neighbour_locations(location2, valid_location_pairs)
+    location_neighbourhood=list(set(location_neighbourhood1).intersection(set(location_neighbourhood2)))
+    
+    if len(location_neighbourhood)>=len(station_neighbourhood):
+        return True
+    else:
+        return False
+
+def check_common_neighbours(stations,edges,locations, valid_location_pairs):
+    z=[]
+    for station1, station2 in edges:
+        for location1, location2 in valid_location_pairs:
+            if check_common_neighbours_count(station1, station2,edges,location1, location2,valid_location_pairs)==True:
+                z.append[[station1, station2],[location1,location2]]
+    return z
+
+def check_station_location(stations, edges, locations, valid_location_pairs):
+    x=[]
+    for station in stations:
+        for location in locations:
+            if check_feasible_location(station, edges, location, valid_locations) ==True:
+                x.append[[station, location]]
+    return x
+
 Path("./model_output").mkdir(parents=True, exist_ok=True)
 
 station_pairs=get_station_pairs()
@@ -200,6 +282,9 @@ valid_location_pairs = get_valid_location_pairs(potential_locations["Locations"]
 
 #Create location names
 location_names = [row["Location"] for row in potential_locations["Locations"]]
+
+#Create count of number of valid locations reachable from each locatoin
+valid_location_count=get_valid_location_count(location_names, valid_location_pairs)
 
 #Print valid location pairs count - check it works
 print(f"Valid location pairs: {len(valid_location_pairs):,} " f"of {len(location_names) ** 2:,}")
