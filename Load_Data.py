@@ -259,7 +259,55 @@ def get_valid_z_indices(edges, valid_location_pairs, eligible_locations, station
                 continue
             valid_z.append((station1, station2, location1, location2 ))
     return valid_z
-    
+
+def get_ring_locations(locations):
+    ring_locations = {}
+    for location in locations:
+        ring = location["Ring"]
+        if ring not in ring_locations:
+            ring_locations[ring] = []
+        ring_locations[ring].append((location["Slot"], location["Location"]))
+    for ring in ring_locations:
+        ring_locations[ring].sort()
+    return {ring: [location for slot, location in locations] for ring, locations in ring_locations.items() }
+
+def get_blocking_locations(location1,  location2, location_lookup, ring_locations):
+    loc1 = location_lookup[location1]
+    loc2 = location_lookup[location2]
+    # Version 1: only same-ring blocking
+    if loc1["Ring"] != loc2["Ring"]:
+        return set()
+    ring = loc1["Ring"]
+    locations = ring_locations[ring]
+    index1 = locations.index(location1)
+    index2 = locations.index(location2)
+    n = len(locations)
+    # Travel clockwise from location1 to location2
+    clockwise = []
+    i = (index1 + 1) % n
+    while i != index2:
+        clockwise.append(locations[i])
+        i = (i + 1) % n
+    # Travel anticlockwise from location1 to location2
+    anticlockwise = []
+    i = (index1 - 1) % n
+    while i != index2:
+        anticlockwise.append(locations[i])
+        i = (i - 1) % n
+    # Use blockers on the shorter arc
+    if len(clockwise) < len(anticlockwise):
+        return set(clockwise)
+    if len(anticlockwise) < len(clockwise):
+        return set(anticlockwise)
+    # Exact tie: either route is possible, so don't
+    # impose a blocking direction yet
+    return set()
+
+def blocking_location_rule(model, station1, station2, location1, location2, blocker):
+#Blocking locations + at most one station occupying a location can't be more than 1
+    return (model.z[station1, station2, location1, location2]   + sum(model.x[station, blocker] for station in model.STATIONS)  <= 1 )
+
+
 Path("./model_output").mkdir(parents=True, exist_ok=True)
 
 station_pairs=get_station_pairs()
@@ -274,6 +322,9 @@ print_potential_locations(potential_locations,maximum_distance_apart)
 
 #Build location lookup
 location_lookup = {row["Location"]: row for row in potential_locations["Locations"]}
+
+#Build an ordered list of locations on each ring
+ring_locations = get_ring_locations(potential_locations["Locations"])
 
 #Define list of valid (in near proximity) location pairs 
 valid_location_pairs = get_valid_location_pairs(potential_locations["Locations"], potential_locations["TargetSpacing"],MAX_DISTANCE_MULTIPLIER,MAX_RING_DIFFERENCE)
@@ -319,7 +370,15 @@ for station, location in valid_station_locations:
 
 valid_z = get_valid_z_indices(airlink_edges, valid_location_pairs, eligible_locations, station_neighbours, location_neighbours)
 
+#Precompute blockers for every valid location pair
+blocking_locations = {(location1, location2): get_blocking_locations(location1, location2, location_lookup, ring_locations) for location1, location2 in valid_location_pairs}
 
+#precompute a flat constraint-index list for blocking constraint
+blocking_constraints = []
+for (station1, station2, location1, location2) in valid_z:
+    for blocker in blocking_locations[(location1, location2)]:
+        blocking_constraints.append((station1, station2, location1, location2, blocker))
+print("Blocking constraints:",len(blocking_constraints))
 
 #Get reference locations and key station
 reference_locations=get_reference_locations( potential_locations["Locations"])
@@ -348,6 +407,12 @@ for station1, station2 in airlink_edges:
 
 print("Required edge-neighbour slots:", min(required_counts), max(required_counts))
 print("Available candidate slots:", min(available_counts), max(available_counts))
+
+#Blocking diagnostics
+pairs_with_blockers = {pair: blockers for pair, blockers in blocking_locations.items() if blockers}
+print("Location pairs with blockers:", len(pairs_with_blockers), "of", len(valid_location_pairs))
+print("Maximum blocking locations:", max((len(blockers) for blockers in blocking_locations.values()), default=0))
+for pair, blockers in list(pairs_with_blockers.items())[:10]:print(pair, "blocks", blockers)
 
 #model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,KEY_STATION )
 #if Flag_Output_MPS==True:
