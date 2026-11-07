@@ -11,9 +11,9 @@ MAX_DISTANCE_MULTIPLIER = 3.0
 MAX_RING_DIFFERENCE = 1
 Station_pair_json_path="./data/station_pairs.json"
 Potential_stations_json_path="./Potential_Locations/potential_station_locations.json"
-MPS_path="./model_output/station_placement.mps"
-Assignment_path="./model_output/station_assignments.json"
-SOLVER_TIME_LIMIT=120 #seconds
+MPS_path="./model_output/station_placement_v2.mps"
+Assignment_path="./model_output/station_assignments_2.json"
+SOLVER_TIME_LIMIT=480 #seconds
 Flag_Output_MPS=True
 Flag_Output_Results=True
 KEY_STATION_MODE = "degree"   # "manual" or "degree"
@@ -136,13 +136,21 @@ def key_station_reference_rule(model):
     #return sum(model.x[model.KEY_STATION, location] for location in valid_reference_locations) == 1
     key_station = pyo.value(model.KEY_STATION)
     valid_reference_locations = [location for location in reference_locations if location in x_locations_by_station[key_station]]
+    if not valid_reference_locations:
+        raise ValueError(f"No reference location available for key station {KEY_STATION}")
     return sum(model.x[key_station, location] for location in valid_reference_locations) == 1
     
-def blocking_location_rule(model, station1, station2, location1, location2, blocker):
+#def blocking_location_rule(model, station1, station2, location1, location2, blocker):
 #Blocking locations + at most one station occupying a location can't be more than 1
-    #return (model.z[station1, station2, location1, location2]   + sum(model.x[station, blocker] for station in model.STATIONS)  <= 1 )
-    #def blocking_location_rule(model, station1, station2, location1, location2, blocker):
-    return (model.z[station1, station2, location1, location2] + sum(model.x[station, blocker] for station in x_stations_by_location[blocker]) <= 1)
+#    #return (model.z[station1, station2, location1, location2]   + sum(model.x[station, blocker] for station in model.STATIONS)  <= 1 )
+#    #def blocking_location_rule(model, station1, station2, location1, location2, blocker):
+#    return (model.z[station1, station2, location1, location2] + sum(model.x[station, blocker] for station in x_stations_by_location[blocker]) <= 1)
+
+def blocking_location_rule(model, station1, station2, location1, location2):
+    #Blocking locations + at most one station occupying a location can't be more than 1
+    blockers = blocking_locations[(location1, location2)]
+    blocker_occupancy = sum(model.x[station, blocker] for blocker in blockers for station in x_stations_by_location[blocker])
+    return (blocker_occupancy<=len(blockers) * (1- model.z[station1, station2, location1, location2]))
 
 def model_objective_rule(model):
     #return sum(
@@ -176,7 +184,7 @@ def build_model(airlink_stations, airlink_edges, location_names, valid_station_l
     model.x = pyo.Var(model.STATION_LOCATIONS, within=pyo.Binary)
     model.z = pyo.Var(model.Z_INDEX, within=pyo.Binary)
     
-    model.BLOCKING_INDEX = pyo.Set(dimen=5, initialize=blocking_constraints)
+    model.BLOCKING_INDEX = pyo.Set(dimen=4, initialize=blocking_constraints)
     model.blocking_location = pyo.Constraint(model.BLOCKING_INDEX, rule=blocking_location_rule)
 
     #station/location constraints
@@ -414,8 +422,8 @@ blocking_locations = {(location1, location2): get_blocking_locations(location1, 
 #precompute a flat constraint-index list for blocking constraint
 blocking_constraints = []
 for (station1, station2, location1, location2) in valid_z:
-    for blocker in blocking_locations[(location1, location2)]:
-        blocking_constraints.append((station1, station2, location1, location2, blocker))
+    if blocking_locations[(location1, location2)]:
+        blocking_constraints.append((station1, station2, location1, location2))
 print("Blocking constraints:",len(blocking_constraints))
 
 #Get reference locations and key station
@@ -470,6 +478,10 @@ for station, location in valid_station_locations:
     x_locations_by_station[station].add(location)
     x_stations_by_location[location].add(station)
 
+for station in airlink_stations:
+    if not x_locations_by_station[station]:
+        raise ValueError(f"No eligible locations for station: {station}")
+
 z_outgoing = {}
 z_incoming = {}
 for (station1, station2, location1, location2) in valid_z:
@@ -495,25 +507,25 @@ model=build_model(airlink_stations, airlink_edges, location_names, valid_station
 print("NVARS: ", model.nvariables())
 print("NCONSTRAINTS: ", model.nconstraints())
 
-#if Flag_Output_MPS==True:
-#    output_mps(model)
-#solver = pyo.SolverFactory("appsi_highs")
-#solver.options["time_limit"] = SOLVER_TIME_LIMIT
-#
-#results = solver.solve(model,tee=True,load_solutions=False)
-#print("Termination:",results.solver.termination_condition)
-#if len(results.solution) > 0:
-#    model.solutions.load_from(results)
-#    assignments = get_station_assignments(model, location_lookup)
-#    output_assignments(assignments)
-#else:
-#    print("No feasible solution found.")
-#
+if Flag_Output_MPS==True:
+    output_mps(model)
+solver = pyo.SolverFactory("appsi_highs")
+solver.options["time_limit"] = SOLVER_TIME_LIMIT
+
+results = solver.solve(model,tee=True,load_solutions=False)
+print("Termination:",results.solver.termination_condition)
+if len(results.solution) > 0:
+    model.solutions.load_from(results)
+    assignments = get_station_assignments(model, location_lookup)
+    output_assignments(assignments)
+else:
+    print("No feasible solution found.")
+
 #results = solver.solve(model, tee=True)
 #print("Termination:", results.solver.termination_condition)
-#
-#if Flag_Output_Results==True:
-#    print(results)
+
+if Flag_Output_Results==True:
+    print(results)
 
 #if results.has_feasible_solution()==True:
 #   model.solutions.load_from(results)
