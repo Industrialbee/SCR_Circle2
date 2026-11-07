@@ -71,6 +71,7 @@ def location_pair_distance(location1, location2):
     #print(location1['X'], location1['Y'], location2['X'],location2['Y'])
     #calc euclidean distance between locations. Actual distance will be mix of arcs and radii (larger)
     return math.hypot(float(location1['X']) - float(location2['X']),float(location1['Y']) - float(location2['Y']))
+    
 
 def check_valid_location(location1, location2, maximum_distance, max_ring_difference):
     #exclude where pair is same location 
@@ -105,29 +106,45 @@ def get_valid_location_pairs(locations, target_spacing, max_distance_multiplier,
     
 def one_location_per_station_rule(model, station):
     #A station occupies exactly one location
-    return sum(model.x[station, location] for location in model.LOCATIONS) == 1
+    #return sum(model.x[station, location] for location in model.LOCATIONS) == 1
+    return sum(model.x[station, location] for location in x_locations_by_station[station]) == 1
 
 def one_station_per_location_rule(model, location):
     #A location can only have one station (or be empty)
-    return sum(model.x[station, location] for station in model.STATIONS) <= 1
+    #return sum(model.x[station, location] for station in model.STATIONS) <= 1
+    return sum(model.x[station, location] for station in x_stations_by_location[location]) <= 1
 
 def edge_start_location_rule(model, station1, station2, location1):
     # If station1 of an edge is assigned to location1, exactly one z variable for that edge must start at location1.
-        return sum(model.z[station1, station2, location1, location2] for location2 in outgoing_locations[location1]) == model.x[station1, location1]
+        #return sum(model.z[station1, station2, location1, location2] for location2 in outgoing_locations[location1]) == model.x[station1, location1]
+    valid_end_locations = z_outgoing.get((station1, station2, location1), [])
+    return sum(model.z[station1, station2, location1, location2] for location2 in valid_end_locations) == model.x[station1, location1]
 
 def edge_end_location_rule(model, station1, station2, location2):
     # If station2 of an edge is assigned to location2, exactly one z variable for that edge must end at location2.
-    return sum(model.z[station1, station2, location1, location2] for location1 in incoming_locations[location2]) == model.x[station2, location2]
-
+    #return sum(model.z[station1, station2, location1, location2] for location1 in incoming_locations[location2]) == model.x[station2, location2]
+    valid_start_locations = z_incoming.get((station1, station2, location2), [])
+    return sum(model.z[station1, station2, location1, location2] for location1 in valid_start_locations) == model.x[station2, location2]
+    
 def key_station_reference_rule(model):
-    return sum(model.x[model.KEY_STATION, location] for location in reference_locations) == 1
+    #return sum(model.x[model.KEY_STATION, location] for location in reference_locations) == 1
+    valid_reference_locations = [location for location in reference_locations if location in x_locations_by_station[pyo.value(model.KEY_STATION)]]
+    return sum(model.x[model.KEY_STATION, location] for location in valid_reference_locations) == 1
+
+def blocking_location_rule(model, station1, station2, location1, location2, blocker):
+#Blocking locations + at most one station occupying a location can't be more than 1
+    return (model.z[station1, station2, location1, location2]   + sum(model.x[station, blocker] for station in model.STATIONS)  <= 1 )
 
 def model_objective_rule(model):
+    #return sum(
+    #    location_pair_distances[location1, location2]* model.z[station1,station2,location1,location2]  
+    #    for station1, station2 in model.EDGES for location1, location2 in model.LOCATION_PAIRS)
     return sum(
-        location_pair_distances[location1, location2]* model.z[station1,station2,location1,location2]  
-        for station1, station2 in model.EDGES for location1, location2 in model.LOCATION_PAIRS)
+        location_pair_distances[location1, location2] * model.z[station1, station2, location1, location2]
+        for (station1, station2, location1, location2) in model.Z_INDEX)
 
-def build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,key_station ):
+#def build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,key_station ):
+def build_model(airlink_stations, airlink_edges, location_names, valid_station_locations, valid_z, blocking_constraints, z_start_indices, z_end_indices, location_pair_distances, key_station):
     #Define model
     model = pyo.ConcreteModel(name="Station placement")
     
@@ -135,22 +152,33 @@ def build_model(airlink_stations, airlink_edges, location_names, valid_location_
     model.STATIONS = pyo.Set(initialize=airlink_stations,   ordered=True)
     model.LOCATIONS = pyo.Set(initialize=location_names,    ordered=True)
 
-    model.LOCATION_PAIRS = pyo.Set(dimen=2, initialize=valid_location_pairs)
-    model.EDGES=pyo.Set(dimen=2, initialize=airlink_edges,    ordered=True)
     model.KEY_STATION=pyo.Param(initialize=key_station)
     
-    #Create a station * location binary matrix
-    model.x = pyo.Var(model.STATIONS, model.LOCATIONS, within=pyo.Binary)
+    model.EDGES = pyo.Set(dimen=2, initialize=airlink_edges, ordered=True)
+    model.STATION_LOCATIONS = pyo.Set(dimen=2, initialize=valid_station_locations)
 
-    model.z=pyo.Var(model.EDGES, model.LOCATION_PAIRS, within=pyo.Binary)
+    model.Z_INDEX = pyo.Set(dimen=4, initialize=valid_z)
+    model.Z_START_INDEX = pyo.Set(dimen=3, initialize=z_start_indices)
+    model.Z_END_INDEX = pyo.Set(dimen=3, initialize=z_end_indices)
+        
+    model.BLOCKING_INDEX = pyo.Set(dimen=5, initialize=blocking_constraints)
+    model.blocking_location = pyo.Constraint(model.BLOCKING_INDEX, rule=blocking_location_rule)
+
+    #Create a station * location binary matrix
+    #model.x = pyo.Var(model.STATIONS, model.LOCATIONS, within=pyo.Binary)
+    #model.z=pyo.Var(model.EDGES, model.LOCATION_PAIRS, within=pyo.Binary)
+    model.x = pyo.Var(model.STATION_LOCATIONS, within=pyo.Binary)
+    model.z = pyo.Var(model.Z_INDEX, within=pyo.Binary)
     
     #station/location constraints
     model.one_location_per_station = pyo.Constraint( model.STATIONS, rule=one_location_per_station_rule)
     model.one_station_per_location = pyo.Constraint(model.LOCATIONS,   rule=one_station_per_location_rule)
     
-    model.edge_start_location = pyo.Constraint(model.EDGES,model.LOCATIONS,rule=edge_start_location_rule)
-    model.edge_end_location = pyo.Constraint(model.EDGES,model.LOCATIONS,rule=edge_end_location_rule)
-    
+    #model.edge_start_location = pyo.Constraint(model.EDGES,model.LOCATIONS,rule=edge_start_location_rule)
+    #model.edge_end_location = pyo.Constraint(model.EDGES,model.LOCATIONS,rule=edge_end_location_rule)
+    model.edge_start_location = pyo.Constraint(model.Z_START_INDEX, rule=edge_start_location_rule)
+    model.edge_end_location = pyo.Constraint(model.Z_END_INDEX, rule=edge_end_location_rule)
+
     #"Key station" constraint - fixes this station to smallest theta, not smallest ring) - reduces rotational freedom of model 
     model.key_station_reference = pyo.Constraint(rule=key_station_reference_rule)
        
@@ -164,11 +192,12 @@ def output_mps(model):
 
 def get_station_assignments(model, location_lookup):
     assignments = []
-    for station in model.STATIONS:
-        for location in model.LOCATIONS:
-            if pyo.value(model.x[station, location]) > 0.5:
-                loc = location_lookup[location]
-                assignments.append({"Station": station, "Location": location, "Ring": loc["Ring"], "Slot": loc["Slot"], "X": loc["X"], "Y": loc["Y"]})
+    #for station in model.STATIONS:
+    #    for location in model.LOCATIONS:
+    for station, location in model.STATION_LOCATIONS:
+        if pyo.value(model.x[station, location]) > 0.5:
+            loc = location_lookup[location]
+            assignments.append({"Station": station, "Location": location, "Ring": loc["Ring"], "Slot": loc["Slot"], "X": loc["X"], "Y": loc["Y"]})
     return assignments
 
 def  output_assignments(assignments):
@@ -303,10 +332,6 @@ def get_blocking_locations(location1,  location2, location_lookup, ring_location
     # impose a blocking direction yet
     return set()
 
-def blocking_location_rule(model, station1, station2, location1, location2, blocker):
-#Blocking locations + at most one station occupying a location can't be more than 1
-    return (model.z[station1, station2, location1, location2]   + sum(model.x[station, blocker] for station in model.STATIONS)  <= 1 )
-
 
 Path("./model_output").mkdir(parents=True, exist_ok=True)
 
@@ -355,6 +380,8 @@ location_neighbour_count = {location: len(neighbours) for location, neighbours i
 station_neighbours=get_station_neighbours(airlink_stations, airlink_edges)
 station_degree = {station: len(neighbours) for station, neighbours in station_neighbours.items()}
 valid_station_locations = get_valid_station_locations(airlink_stations,location_names,station_degree,location_neighbour_count)
+location_pair_distances = {(l1, l2): location_pair_distance(location_lookup[l1], location_lookup[l2]) for l1, l2 in valid_location_pairs}
+
 print("Station degrees:")
 for station in airlink_stations:
     print(station, station_degree[station])
@@ -414,7 +441,46 @@ print("Location pairs with blockers:", len(pairs_with_blockers), "of", len(valid
 print("Maximum blocking locations:", max((len(blockers) for blockers in blocking_locations.values()), default=0))
 for pair, blockers in list(pairs_with_blockers.items())[:10]:print(pair, "blocks", blockers)
 
+#locations_by_station = {station: set() for station in airlink_stations}
+#stations_by_location = {location: set() for location in location_names}
+#for station, location in valid_station_locations:
+#    locations_by_station[station].add(location)
+#    stations_by_location[location].add(station)
+
+#z_by_edge_start_location = {}
+#z_by_edge_end_location = {}
+#for station1, station2, location1, location2 in valid_z:
+#    z_by_edge_start_location.setdefault((station1, station2, location1), []).append(location2)
+#    z_by_edge_end_location.setdefault((station1, station2, location2), []).append(location1)
+
+x_locations_by_station = {station: set() for station in airlink_stations}
+x_stations_by_location = {location: set() for location in location_names}
+for station, location in valid_station_locations:
+    x_locations_by_station[station].add(location)
+    x_stations_by_location[location].add(station)
+
+z_outgoing = {}
+z_incoming = {}
+for (station1, station2, location1, location2) in valid_z:
+    z_outgoing.setdefault((station1, station2, location1), []).append(location2)
+    z_incoming.setdefault((station1, station2, location2), []).append(location1)
+
+z_start_indices = []
+z_end_indices = []
+for station1, station2 in airlink_edges:
+    for location1 in eligible_locations[station1]:
+        z_start_indices.append((station1, station2, location1))
+
+    for location2 in eligible_locations[station2]:
+        z_end_indices.append((station1, station2, location2))
+
+print("Pyomo x variables:", len(valid_station_locations))
+print("Pyomo z variables:", len(valid_z))
+print("Blocking constraints:", len(blocking_constraints))
+
 #model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,KEY_STATION )
+#model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,KEY_STATION )
+model=build_model(airlink_stations, airlink_edges, location_names, valid_station_locations, valid_z, blocking_constraints, z_start_indices, z_end_indices, location_pair_distances, KEY_STATION)
 #if Flag_Output_MPS==True:
 #    output_mps(model)
 #solver = pyo.SolverFactory("appsi_highs")
