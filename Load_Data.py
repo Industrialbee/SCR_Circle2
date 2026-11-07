@@ -7,13 +7,13 @@ from pathlib import Path
 from collections import Counter
 
 #Parameters
-MAX_DISTANCE_MULTIPLIER = 3.0
+MAX_DISTANCE_MULTIPLIER =2.0
 MAX_RING_DIFFERENCE = 1
 Station_pair_json_path="./data/station_pairs.json"
 Potential_stations_json_path="./Potential_Locations/potential_station_locations.json"
 MPS_path="./model_output/station_placement_v3.mps"
 Assignment_path="./model_output/station_assignments_3.json"
-SOLVER_TIME_LIMIT=480 #seconds
+SOLVER_TIME_LIMIT=120 #seconds
 Flag_Output_MPS=True
 Flag_Output_Results=True
 KEY_STATION_MODE = "degree"   # "manual" or "degree"
