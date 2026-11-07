@@ -11,8 +11,8 @@ MAX_DISTANCE_MULTIPLIER = 3.0
 MAX_RING_DIFFERENCE = 1
 Station_pair_json_path="./data/station_pairs.json"
 Potential_stations_json_path="./Potential_Locations/potential_station_locations.json"
-MPS_path="./model_output/station_placement_v2.mps"
-Assignment_path="./model_output/station_assignments_2.json"
+MPS_path="./model_output/station_placement_v3.mps"
+Assignment_path="./model_output/station_assignments_3.json"
 SOLVER_TIME_LIMIT=480 #seconds
 Flag_Output_MPS=True
 Flag_Output_Results=True
@@ -149,8 +149,15 @@ def key_station_reference_rule(model):
 def blocking_location_rule(model, station1, station2, location1, location2):
     #Blocking locations + at most one station occupying a location can't be more than 1
     blockers = blocking_locations[(location1, location2)]
-    blocker_occupancy = sum(model.x[station, blocker] for blocker in blockers for station in x_stations_by_location[blocker])
-    return (blocker_occupancy<=len(blockers) * (1- model.z[station1, station2, location1, location2]))
+    #blocker_occupancy = sum(model.x[station, blocker] for blocker in blockers for station in x_stations_by_location[blocker])
+    #return (blocker_occupancy<=len(blockers) * (1- model.z[station1, station2, location1, location2]))
+    return (sum(model.y[blocker] for blocker in blockers ) <=len(blockers) * (1 -model.z[station1, station2, location1, location2]))
+
+def location_occupancy_rule(model, location):
+    eligible_stations = x_stations_by_location[location]
+    if not eligible_stations:
+        return model.y[location] == 0
+    return (model.y[location]==sum(model.x[station, location] for station in eligible_stations))
 
 def model_objective_rule(model):
     #return sum(
@@ -182,6 +189,7 @@ def build_model(airlink_stations, airlink_edges, location_names, valid_station_l
     #model.x = pyo.Var(model.STATIONS, model.LOCATIONS, within=pyo.Binary)
     #model.z=pyo.Var(model.EDGES, model.LOCATION_PAIRS, within=pyo.Binary)
     model.x = pyo.Var(model.STATION_LOCATIONS, within=pyo.Binary)
+    model.y = pyo.Var(model.LOCATIONS, bounds=(0, 1))
     model.z = pyo.Var(model.Z_INDEX, within=pyo.Binary)
     
     model.BLOCKING_INDEX = pyo.Set(dimen=4, initialize=blocking_constraints)
@@ -189,7 +197,8 @@ def build_model(airlink_stations, airlink_edges, location_names, valid_station_l
 
     #station/location constraints
     model.one_location_per_station = pyo.Constraint( model.STATIONS, rule=one_location_per_station_rule)
-    model.one_station_per_location = pyo.Constraint(model.LOCATIONS,   rule=one_station_per_location_rule)
+    #model.one_station_per_location = pyo.Constraint(model.LOCATIONS,   rule=one_station_per_location_rule)
+    model.location_occupancy = pyo.Constraint(model.LOCATIONS,rule=location_occupancy_rule)
     
     #model.edge_start_location = pyo.Constraint(model.EDGES,model.LOCATIONS,rule=edge_start_location_rule)
     #model.edge_end_location = pyo.Constraint(model.EDGES,model.LOCATIONS,rule=edge_end_location_rule)
