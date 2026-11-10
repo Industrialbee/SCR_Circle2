@@ -1,6 +1,3 @@
-#To Do
-# physical_link_usage_rule - w = 1 if one or more z use the physical link. Need to revise if multiple operators serve the same pair of stations
-
 import json
 import pyomo.environ as pyo
 #from pyomo.opt import SolverStatus, TerminationCondition
@@ -11,8 +8,8 @@ from collections import Counter
 import sys
 
 #Parameters
-MAX_DISTANCE_MULTIPLIER =2.5
-MAX_RING_DIFFERENCE = 2
+MAX_DISTANCE_MULTIPLIER =3.0
+MAX_RING_DIFFERENCE = 3
 Station_pair_json_path="./data/station_pairs.json"
 Potential_stations_json_path="./Potential_Locations/potential_station_locations.json"
 MPS_path="./model_output/station_placement_v3.mps"
@@ -470,22 +467,13 @@ def physical_link_usage_rule(model, location1, location2):
     return (model.w[location1, location2] == sum(model.z[z_index] for z_index in z_indices))
 
 def get_crossing_physical_links(physical_links, location_lookup):
-    inter_ring_links = []
-    for location1, location2 in physical_links:
-        ring1 = location_lookup[location1]["Ring"]
-        ring2 = location_lookup[location2]["Ring"]
-        # Same-ring links are handled by blocking logic
-        if ring1 == ring2:
-            continue
-        inter_ring_links.append((location1, location2))
+    links = list(physical_links)
     crossing_pairs = set()
-    for i in range(len(inter_ring_links)):
-        link_a = inter_ring_links[i]
-        for j in range(i + 1, len(inter_ring_links)):
-            link_b = inter_ring_links[j]
-            if not bounding_boxes_overlap(link_a[0], link_a[1], link_b[0], link_b[1], location_lookup):
-                continue
-            if location_links_cross(link_a[0], link_a[1], link_b[0], link_b[1], location_lookup):
+    for i in range(len(links)):
+        link_a = links[i]
+        for j in range(i + 1, len(links)):
+            link_b = links[j]
+            if physical_links_cross(link_a, link_b, location_lookup):
                 crossing_pairs.add((link_a[0], link_a[1], link_b[0], link_b[1]))
     return crossing_pairs
 
@@ -507,6 +495,102 @@ def bounding_boxes_overlap(location1a, location2a, location1b, location2b, locat
     min_by = min(p3["Y"], p4["Y"])
     max_by = max(p3["Y"], p4["Y"])
     return not (max_ax < min_bx or max_bx < min_ax or max_ay < min_by or max_by < min_ay )
+
+def link_spans_ring(location1, location2, target_ring, location_lookup):
+    #Cheap filter: does the inter-ring link span the arc’s ring?
+    ring1 = location_lookup[location1]["Ring"]
+    ring2 = location_lookup[location2]["Ring"]
+    return (min(ring1, ring2)<= target_ring<= max(ring1, ring2))
+
+def angle_on_short_arc(theta, theta1, theta2):
+    #Keep the shortest-arc angle
+    two_pi = 2 * math.pi
+    theta = theta % two_pi
+    theta1 = theta1 % two_pi
+    theta2 = theta2 % two_pi
+    clockwise = (theta2 - theta1) % two_pi
+    anticlockwise = (theta1 - theta2) % two_pi
+    if clockwise < anticlockwise:
+        distance = (theta - theta1) % two_pi
+        return 0 < distance < clockwise
+    if anticlockwise < clockwise:
+        distance = (theta1 - theta) % two_pi
+        return 0 < distance < anticlockwise
+    # Exactly opposite: routing direction ambiguous
+    return False
+
+def segment_ring_intersection_angles(location1, location2, target_radius, location_lookup):
+    #if the inter-ring link (loc1-loc2) spans the target ring, then the crossing position is where the segment reaches that ring radius.
+    p1 = location_lookup[location1]
+    p2 = location_lookup[location2]
+    x1 = p1["X"]
+    y1 = p1["Y"]
+    dx = p2["X"] - x1
+    dy = p2["Y"] - y1
+    a = dx * dx + dy * dy
+    b = 2 * (x1 * dx + y1 * dy)
+    c = (x1 * x1 + y1 * y1 - target_radius **2)
+    discriminant = b * b - 4 * a * c
+    if discriminant <= 0:
+        return []
+    root = math.sqrt(discriminant)
+    angles = []
+    for t in ((-b - root) / (2 * a), (-b + root) / (2 * a)):
+        if 0 < t < 1:
+            x = x1 + t * dx
+            y = y1 + t * dy
+            theta = math.atan2(y, x)
+            if theta < 0:
+                theta += 2 * math.pi
+            angles.append(theta)
+    return angles
+
+def same_ring_inter_ring_cross(same_location1, same_location2, inter_location1, inter_location2, location_lookup):
+    same1 = location_lookup[same_location1]
+    same2 = location_lookup[same_location2]
+    # Must genuinely be a same-ring link
+    if same1["Ring"] != same2["Ring"]:
+        return False
+    # Shared endpoint is allowed
+    if (same_location1 in {inter_location1, inter_location2} or same_location2 in {inter_location1, inter_location2}):
+        return False
+    target_ring = same1["Ring"]
+    # Cheap filter first
+    if not link_spans_ring(inter_location1, inter_location2, target_ring, location_lookup):
+        return False
+    target_radius = same1["Radius"]
+    intersection_angles = (segment_ring_intersection_angles(inter_location1, inter_location2, target_radius, location_lookup))
+    for theta in intersection_angles:
+        if angle_on_short_arc(theta, same1["Theta"], same2["Theta"]):
+            return True
+    return False
+
+def physical_links_cross(link_a, link_b, location_lookup):
+    a1, a2 = link_a
+    b1, b2 = link_b
+    # Shared endpoint is allowed
+    if (a1 in {b1, b2} or a2 in {b1, b2}):
+        return False
+    ring_a1 = location_lookup[a1]["Ring"]
+    ring_a2 = location_lookup[a2]["Ring"]
+    ring_b1 = location_lookup[b1]["Ring"]
+    ring_b2 = location_lookup[b2]["Ring"]
+    a_same_ring = (ring_a1 == ring_a2)
+    b_same_ring = (ring_b1 == ring_b2)
+    # Both inter-ring:
+    # use existing straight-line crossing test
+    if not a_same_ring and not b_same_ring:
+        return location_links_cross(a1, a2, b1, b2, location_lookup)
+    # A same-ring, B inter-ring
+    if a_same_ring and not b_same_ring:
+        return same_ring_inter_ring_cross(a1, a2, b1, b2, location_lookup)
+    # B same-ring, A inter-ring
+    if b_same_ring and not a_same_ring:
+        return same_ring_inter_ring_cross(b1, b2, a1, a2, location_lookup)
+    # Both same-ring:
+    # existing blocker logic handles these
+    return False
+
 
 Path("./model_output").mkdir(parents=True, exist_ok=True)
 
