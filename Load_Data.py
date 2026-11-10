@@ -1,4 +1,6 @@
-#Stage 5 done on crossing import
+#To Do
+# physical_link_usage_rule - w = 1 if one or more z use the physical link. Need to revise if multiple operators serve the same pair of stations
+
 import json
 import pyomo.environ as pyo
 #from pyomo.opt import SolverStatus, TerminationCondition
@@ -468,27 +470,43 @@ def physical_link_usage_rule(model, location1, location2):
     return (model.w[location1, location2] == sum(model.z[z_index] for z_index in z_indices))
 
 def get_crossing_physical_links(physical_links, location_lookup):
-    pairs_by_rings = {}
+    inter_ring_links = []
     for location1, location2 in physical_links:
         ring1 = location_lookup[location1]["Ring"]
         ring2 = location_lookup[location2]["Ring"]
-        # same-ring links handled by blockers
+        # Same-ring links are handled by blocking logic
         if ring1 == ring2:
             continue
-        ring_pair = tuple(sorted((ring1, ring2)))
-        pairs_by_rings.setdefault(ring_pair, []).append((location1, location2))
+        inter_ring_links.append((location1, location2))
     crossing_pairs = set()
-    for links in pairs_by_rings.values():        
-        for i in range(len(links)):
-            link_a = links[i]
-            for j in range(i + 1, len(links)):
-                link_b = links[j]
-                if location_links_cross(link_a[0], link_a[1], link_b[0], link_b[1], location_lookup):
-                    crossing_pairs.add((link_a[0], link_a[1], link_b[0], link_b[1] ))
+    for i in range(len(inter_ring_links)):
+        link_a = inter_ring_links[i]
+        for j in range(i + 1, len(inter_ring_links)):
+            link_b = inter_ring_links[j]
+            if not bounding_boxes_overlap(link_a[0], link_a[1], link_b[0], link_b[1], location_lookup):
+                continue
+            if location_links_cross(link_a[0], link_a[1], link_b[0], link_b[1], location_lookup):
+                crossing_pairs.add((link_a[0], link_a[1], link_b[0], link_b[1]))
     return crossing_pairs
 
 def crossing_link_rule(model, location1a, location2a, location1b, location2b):
     return (model.w[location1a, location2a] + model.w[location1b, location2b]    <= 1)
+
+def bounding_boxes_overlap(location1a, location2a, location1b, location2b, location_lookup):
+    #avoid doing the orientation calculation on obviously unrelated segments by checking their bounding boxes first.
+    p1 = location_lookup[location1a]
+    p2 = location_lookup[location2a]
+    p3 = location_lookup[location1b]
+    p4 = location_lookup[location2b]
+    min_ax = min(p1["X"], p2["X"])
+    max_ax = max(p1["X"], p2["X"])
+    min_ay = min(p1["Y"], p2["Y"])
+    max_ay = max(p1["Y"], p2["Y"])
+    min_bx = min(p3["X"], p4["X"])
+    max_bx = max(p3["X"], p4["X"])
+    min_by = min(p3["Y"], p4["Y"])
+    max_by = max(p3["Y"], p4["Y"])
+    return not (max_ax < min_bx or max_bx < min_ax or max_ay < min_by or max_by < min_ay )
 
 Path("./model_output").mkdir(parents=True, exist_ok=True)
 
@@ -659,6 +677,8 @@ for (station1, station2, location1, location2) in valid_z:
     z_by_physical_link[link].append((station1, station2, location1, location2))
 
 crossing_physical_links=get_crossing_physical_links(physical_links, location_lookup)
+print("Physical links:", len(physical_links))
+print("Crossing physical-link pairs:", len(crossing_physical_links))
 
 #Infeasible max_distance_multiplier 
 # stations with no valid x locations
