@@ -1,3 +1,4 @@
+#Stage 5 done on crossing import
 import json
 import pyomo.environ as pyo
 #from pyomo.opt import SolverStatus, TerminationCondition
@@ -5,16 +6,17 @@ import pyomo.environ as pyo
 import math
 from pathlib import Path
 from collections import Counter
+import sys
 
 #Parameters
 MAX_DISTANCE_MULTIPLIER =2.0
-MAX_RING_DIFFERENCE = 1
+MAX_RING_DIFFERENCE = 2
 Station_pair_json_path="./data/station_pairs.json"
 Potential_stations_json_path="./Potential_Locations/potential_station_locations.json"
 MPS_path="./model_output/station_placement_v3.mps"
 Assignment_path="./model_output/station_assignments_3.json"
-SOLVER_TIME_LIMIT=120 #seconds
-Flag_Output_MPS=True
+SOLVER_TIME_LIMIT=480 #seconds
+Flag_Output_MPS=False
 Flag_Output_Results=True
 KEY_STATION_MODE = "degree"   # "manual" or "degree"
 KEY_STATION = "Stepford Central"
@@ -168,7 +170,7 @@ def model_objective_rule(model):
         for (station1, station2, location1, location2) in model.Z_INDEX)
 
 #def build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,key_station ):
-def build_model(airlink_stations, airlink_edges, location_names, valid_station_locations, valid_z, blocking_constraints, z_start_indices, z_end_indices, location_pair_distances, key_station):
+def build_model(airlink_stations, airlink_edges, location_names, valid_station_locations, valid_z, blocking_constraints, z_start_indices, z_end_indices, location_pair_distances, key_station, crossing_z_pairs):
     #Define model
     model = pyo.ConcreteModel(name="Station placement")
     
@@ -194,6 +196,9 @@ def build_model(airlink_stations, airlink_edges, location_names, valid_station_l
     
     model.BLOCKING_INDEX = pyo.Set(dimen=4, initialize=blocking_constraints)
     model.blocking_location = pyo.Constraint(model.BLOCKING_INDEX, rule=blocking_location_rule)
+
+    model.CROSSING_Z_INDEX = pyo.Set(dimen=8, initialize=crossing_z_pairs)
+    model.crossing_z = pyo.Constraint(model.CROSSING_Z_INDEX, rule=crossing_z_rule)
 
     #station/location constraints
     model.one_location_per_station = pyo.Constraint( model.STATIONS, rule=one_location_per_station_rule)
@@ -360,6 +365,93 @@ def get_blocking_locations(location1,  location2, location_lookup, ring_location
     # impose a blocking direction yet
     return set()
 
+def orientation(p1, p2, p3):
+    #Orientation of three XY points.
+    #Returns: > 0 : anticlockwise, < 0 : clockwise, = 0 : collinear
+    return ((p2["X"] - p1["X"]) * (p3["Y"] - p1["Y"]) - (p2["Y"] - p1["Y"]) * (p3["X"] - p1["X"]))
+
+def location_links_cross(location1a, location2a, location1b, location2b,location_lookup):
+    #Return True if the two straight-line location links cross in their interiors.
+    #Links sharing an endpoint are not counted as crossings.
+    # Shared endpoint: meeting at a station/location is allowed
+    if (location1a in {location1b, location2b} or location2a in {location1b, location2b}):
+        return False
+    p1 = location_lookup[location1a]
+    p2 = location_lookup[location2a]
+    p3 = location_lookup[location1b]
+    p4 = location_lookup[location2b]
+
+    o1 = orientation(p1, p2, p3)
+    o2 = orientation(p1, p2, p4)
+    o3 = orientation(p3, p4, p1)
+    o4 = orientation(p3, p4, p2)
+
+    # Strict crossing only.
+    # Collinear/touching cases are not treated as crossings here.
+    return (o1 * o2 < 0 and o3 * o4 < 0)
+
+def get_inter_ring_location_pairs(valid_location_pairs, location_lookup):
+    #classify inter-ring pairs
+    inter_ring_pairs = []
+    for location1, location2 in valid_location_pairs:
+        ring1 = location_lookup[location1]["Ring"]
+        ring2 = location_lookup[location2]["Ring"]
+        if ring1 == ring2:
+            continue
+        inter_ring_pairs.append((location1, location2))
+    return inter_ring_pairs
+
+def get_ring_pair(location1, location2, location_lookup):
+    #Because one link might be stored inner→outer and another outer→inner
+    ring1 = location_lookup[location1]["Ring"]
+    ring2 = location_lookup[location2]["Ring"]
+    return tuple(sorted((ring1, ring2)))
+
+def get_crossing_location_pairs(valid_location_pairs, location_lookup):
+    inter_ring_pairs = get_inter_ring_location_pairs(valid_location_pairs, location_lookup)
+    
+    # Group location pairs by the rings they span
+    pairs_by_rings = {}
+
+    for location1, location2 in inter_ring_pairs:
+        ring_pair = get_ring_pair(location1, location2, location_lookup)
+
+        pairs_by_rings.setdefault(ring_pair, []).append((location1, location2))
+
+    crossing_pairs = set()
+    for ring_pair, pairs in pairs_by_rings.items():
+        for i in range(len(pairs)):
+            location1a, location2a = pairs[i]
+            for j in range(i + 1, len(pairs)):
+                location1b, location2b = pairs[j]
+
+                if location_links_cross(location1a, location2a, location1b, location2b, location_lookup):
+                    crossing_pairs.add((location1a, location2a, location1b, location2b))
+    return crossing_pairs
+
+def get_crossing_z_pairs(crossing_location_pairs, z_by_location_pair):
+    crossing_z_pairs = []
+    for (location1a, location2a, location1b, location2b) in crossing_location_pairs:
+        z_list_a = z_by_location_pair.get((location1a, location2a), [])
+        z_list_b = z_by_location_pair.get((location1b, location2b), [])
+        for z_a in z_list_a:
+            for z_b in z_list_b:
+                station1a, station2a, _, _ = z_a
+                station1b, station2b, _, _ = z_b
+
+                # Same real edge - only one placement can be selected anyway
+                if (station1a == station1b and station2a == station2b ):
+                    continue
+
+                # Edges sharing a station meet at that station, so don't treat them as a crossing conflict
+                if ({station1a, station2a} & {station1b, station2b}):
+                    continue
+                    
+                crossing_z_pairs.append(z_a + z_b)
+    return crossing_z_pairs
+
+def crossing_z_rule(model, station1a, station2a, location1a, location2a, station1b, station2b, location1b, location2b):
+    return (model.z[station1a, station2a, location1a, location2a]  + model.z[station1b, station2b, location1b, location2b] <= 1)
 
 Path("./model_output").mkdir(parents=True, exist_ok=True)
 
@@ -435,6 +527,10 @@ for (station1, station2, location1, location2) in valid_z:
         blocking_constraints.append((station1, station2, location1, location2))
 print("Blocking constraints:",len(blocking_constraints))
 
+#precompute crossing location-pair combinations
+crossing_location_pairs = get_crossing_location_pairs(valid_location_pairs,location_lookup)
+print("Crossing location-pair combinations:", len(crossing_location_pairs))
+
 #Get reference locations and key station
 reference_locations=get_reference_locations( potential_locations["Locations"])
 KEY_STATION=get_key_station(airlink_edges,  mode=KEY_STATION_MODE, key_station=KEY_STATION)
@@ -506,13 +602,43 @@ for station1, station2 in airlink_edges:
     for location2 in eligible_locations[station2]:
         z_end_indices.append((station1, station2, location2))
 
+z_by_location_pair = {}
+
+for (station1, station2, location1, location2) in valid_z:
+    z_by_location_pair.setdefault((location1, location2), []).append((station1, station2, location1, location2))
+
 print("Pyomo x variables:", len(valid_station_locations))
 print("Pyomo z variables:", len(valid_z))
 print("Blocking constraints:", len(blocking_constraints))
 
+#Convert location conflicts into z conflicts
+crossing_z_pairs = get_crossing_z_pairs(crossing_location_pairs, z_by_location_pair)
+print("Crossing z constraints:",len(crossing_z_pairs))
+
+#Infeasible max_distance_multiplier 
+# stations with no valid x locations
+for station in airlink_stations:
+    if not eligible_locations[station]:
+        print("NO ELIGIBLE LOCATIONS:", station)
+
+# edges with no valid z placements
+z_count_by_edge = {(station1, station2): 0 for station1, station2 in airlink_edges}
+for station1, station2, location1, location2 in valid_z:
+    z_count_by_edge[(station1, station2)] += 1
+for edge, count in z_count_by_edge.items():
+    if count == 0:
+        print("NO VALID Z FOR EDGE:", edge)
+
+# key station reference sanity check
+valid_reference_locations = [location for location in reference_locations if location in x_locations_by_station[KEY_STATION]]
+print("Valid reference locations for key station:", valid_reference_locations)
+
+if len(valid_reference_locations)==0:
+    sys.exit("No valid location found for reference location. Try increasing MAX_DISTANCE_THRESHOLD")
+
 #model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,KEY_STATION )
 #model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,KEY_STATION )
-model=build_model(airlink_stations, airlink_edges, location_names, valid_station_locations, valid_z, blocking_constraints, z_start_indices, z_end_indices, location_pair_distances, KEY_STATION)
+model=build_model(airlink_stations, airlink_edges, location_names, valid_station_locations, valid_z, blocking_constraints, z_start_indices, z_end_indices, location_pair_distances, KEY_STATION, crossing_z_pairs)
 print("NVARS: ", model.nvariables())
 print("NCONSTRAINTS: ", model.nconstraints())
 
