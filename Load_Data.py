@@ -9,13 +9,13 @@ from collections import Counter
 import sys
 
 #Parameters
-MAX_DISTANCE_MULTIPLIER =2.0
+MAX_DISTANCE_MULTIPLIER =2.5
 MAX_RING_DIFFERENCE = 2
 Station_pair_json_path="./data/station_pairs.json"
 Potential_stations_json_path="./Potential_Locations/potential_station_locations.json"
 MPS_path="./model_output/station_placement_v3.mps"
 Assignment_path="./model_output/station_assignments_3.json"
-SOLVER_TIME_LIMIT=480 #seconds
+SOLVER_TIME_LIMIT=120 #seconds
 Flag_Output_MPS=False
 Flag_Output_Results=True
 KEY_STATION_MODE = "degree"   # "manual" or "degree"
@@ -170,7 +170,7 @@ def model_objective_rule(model):
         for (station1, station2, location1, location2) in model.Z_INDEX)
 
 #def build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,key_station ):
-def build_model(airlink_stations, airlink_edges, location_names, valid_station_locations, valid_z, blocking_constraints, z_start_indices, z_end_indices, location_pair_distances, key_station, crossing_z_pairs):
+def build_model(airlink_stations, airlink_edges, location_names, valid_station_locations, valid_z, blocking_constraints, z_start_indices, z_end_indices, location_pair_distances, key_station, z_by_physical_link, physical_links, crossing_physical_links):
     #Define model
     model = pyo.ConcreteModel(name="Station placement")
     
@@ -197,9 +197,16 @@ def build_model(airlink_stations, airlink_edges, location_names, valid_station_l
     model.BLOCKING_INDEX = pyo.Set(dimen=4, initialize=blocking_constraints)
     model.blocking_location = pyo.Constraint(model.BLOCKING_INDEX, rule=blocking_location_rule)
 
-    model.CROSSING_Z_INDEX = pyo.Set(dimen=8, initialize=crossing_z_pairs)
-    model.crossing_z = pyo.Constraint(model.CROSSING_Z_INDEX, rule=crossing_z_rule)
+    #model.CROSSING_Z_INDEX = pyo.Set(dimen=8, initialize=crossing_z_pairs)
+    #model.crossing_z = pyo.Constraint(model.CROSSING_Z_INDEX, rule=crossing_z_rule)
 
+    model.PHYSICAL_LINKS = pyo.Set(dimen=2, initialize=physical_links)
+    model.w = pyo.Var(model.PHYSICAL_LINKS, bounds=(0, 1))
+    model.physical_link_usage = pyo.Constraint(model.PHYSICAL_LINKS, rule=physical_link_usage_rule)
+    
+    model.CROSSING_LINK_INDEX = pyo.Set(dimen=4, initialize=crossing_physical_links)
+    model.crossing_links = pyo.Constraint(model.CROSSING_LINK_INDEX, rule=crossing_link_rule)
+    
     #station/location constraints
     model.one_location_per_station = pyo.Constraint( model.STATIONS, rule=one_location_per_station_rule)
     #model.one_station_per_location = pyo.Constraint(model.LOCATIONS,   rule=one_station_per_location_rule)
@@ -429,29 +436,59 @@ def get_crossing_location_pairs(valid_location_pairs, location_lookup):
                     crossing_pairs.add((location1a, location2a, location1b, location2b))
     return crossing_pairs
 
-def get_crossing_z_pairs(crossing_location_pairs, z_by_location_pair):
-    crossing_z_pairs = []
-    for (location1a, location2a, location1b, location2b) in crossing_location_pairs:
-        z_list_a = z_by_location_pair.get((location1a, location2a), [])
-        z_list_b = z_by_location_pair.get((location1b, location2b), [])
-        for z_a in z_list_a:
-            for z_b in z_list_b:
-                station1a, station2a, _, _ = z_a
-                station1b, station2b, _, _ = z_b
+#def get_crossing_z_pairs(crossing_location_pairs, z_by_location_pair):
+#    crossing_z_pairs = []
+#    for (location1a, location2a, location1b, location2b) in crossing_location_pairs:
+#        z_list_a = z_by_location_pair.get((location1a, location2a), [])
+#        z_list_b = z_by_location_pair.get((location1b, location2b), [])
+#        for z_a in z_list_a:
+#            for z_b in z_list_b:
+#                station1a, station2a, _, _ = z_a
+#                station1b, station2b, _, _ = z_b
+#
+#                # Same real edge - only one placement can be selected anyway
+#                if (station1a == station1b and station2a == station2b ):
+#                    continue
+#
+#                # Edges sharing a station meet at that station, so don't treat them as a crossing conflict
+#                if ({station1a, station2a} & {station1b, station2b}):
+#                    continue
+#                    
+#                crossing_z_pairs.append(z_a + z_b)
+#    return crossing_z_pairs
 
-                # Same real edge - only one placement can be selected anyway
-                if (station1a == station1b and station2a == station2b ):
-                    continue
+#def crossing_z_rule(model, station1a, station2a, location1a, location2a, station1b, station2b, location1b, location2b):
+#    return (model.z[station1a, station2a, location1a, location2a]  + model.z[station1b, station2b, location1b, location2b] <= 1)
 
-                # Edges sharing a station meet at that station, so don't treat them as a crossing conflict
-                if ({station1a, station2a} & {station1b, station2b}):
-                    continue
-                    
-                crossing_z_pairs.append(z_a + z_b)
-    return crossing_z_pairs
+def physical_link(location1, location2):
+    return tuple(sorted((location1, location2)))
 
-def crossing_z_rule(model, station1a, station2a, location1a, location2a, station1b, station2b, location1b, location2b):
-    return (model.z[station1a, station2a, location1a, location2a]  + model.z[station1b, station2b, location1b, location2b] <= 1)
+def physical_link_usage_rule(model, location1, location2):
+    z_indices = z_by_physical_link[(location1, location2)]
+    return (model.w[location1, location2] == sum(model.z[z_index] for z_index in z_indices))
+
+def get_crossing_physical_links(physical_links, location_lookup):
+    pairs_by_rings = {}
+    for location1, location2 in physical_links:
+        ring1 = location_lookup[location1]["Ring"]
+        ring2 = location_lookup[location2]["Ring"]
+        # same-ring links handled by blockers
+        if ring1 == ring2:
+            continue
+        ring_pair = tuple(sorted((ring1, ring2)))
+        pairs_by_rings.setdefault(ring_pair, []).append((location1, location2))
+    crossing_pairs = set()
+    for links in pairs_by_rings.values():        
+        for i in range(len(links)):
+            link_a = links[i]
+            for j in range(i + 1, len(links)):
+                link_b = links[j]
+                if location_links_cross(link_a[0], link_a[1], link_b[0], link_b[1], location_lookup):
+                    crossing_pairs.add((link_a[0], link_a[1], link_b[0], link_b[1] ))
+    return crossing_pairs
+
+def crossing_link_rule(model, location1a, location2a, location1b, location2b):
+    return (model.w[location1a, location2a] + model.w[location1b, location2b]    <= 1)
 
 Path("./model_output").mkdir(parents=True, exist_ok=True)
 
@@ -612,8 +649,16 @@ print("Pyomo z variables:", len(valid_z))
 print("Blocking constraints:", len(blocking_constraints))
 
 #Convert location conflicts into z conflicts
-crossing_z_pairs = get_crossing_z_pairs(crossing_location_pairs, z_by_location_pair)
-print("Crossing z constraints:",len(crossing_z_pairs))
+#crossing_z_pairs = get_crossing_z_pairs(crossing_location_pairs, z_by_location_pair)
+#print("Crossing z constraints:",len(crossing_z_pairs))
+
+physical_links = {physical_link(location1, location2) for (station1, station2, location1, location2) in valid_z}
+z_by_physical_link = {link: []  for link in physical_links}
+for (station1, station2, location1, location2) in valid_z:
+    link = physical_link(location1, location2)
+    z_by_physical_link[link].append((station1, station2, location1, location2))
+
+crossing_physical_links=get_crossing_physical_links(physical_links, location_lookup)
 
 #Infeasible max_distance_multiplier 
 # stations with no valid x locations
@@ -638,7 +683,7 @@ if len(valid_reference_locations)==0:
 
 #model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,KEY_STATION )
 #model = build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,KEY_STATION )
-model=build_model(airlink_stations, airlink_edges, location_names, valid_station_locations, valid_z, blocking_constraints, z_start_indices, z_end_indices, location_pair_distances, KEY_STATION, crossing_z_pairs)
+model=build_model(airlink_stations, airlink_edges, location_names, valid_station_locations, valid_z, blocking_constraints, z_start_indices, z_end_indices, location_pair_distances, KEY_STATION, z_by_physical_link,physical_links, crossing_physical_links)
 print("NVARS: ", model.nvariables())
 print("NCONSTRAINTS: ", model.nconstraints())
 
