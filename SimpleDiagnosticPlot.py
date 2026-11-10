@@ -19,7 +19,7 @@ OPERATOR = "AirLink"
 STATION_PAIRS_PATH = "./data/station_pairs.json"
 POTENTIAL_LOCATIONS_PATH = ("./Potential_Locations/potential_station_locations.json")
 ASSIGNMENTS_PATH = ("./model_output/station_assignments_3.json")
-OUTPUT_PATH = ("./model_output/diagnostic_layout_occupied__2_0.png")
+OUTPUT_PATH = ("./model_output/diagnostic_layout_crossing.png")
 SHOW_ALL_LOCATIONS = True
 
 # Load data
