@@ -10,6 +10,7 @@ import sys
 #Parameters
 MAX_DISTANCE_MULTIPLIER =3.0
 MAX_RING_DIFFERENCE = 3
+MAX_CROSSING_ITERATIONS=3
 Station_pair_json_path="./data/station_pairs.json"
 Potential_stations_json_path="./Potential_Locations/potential_station_locations.json"
 MPS_path="./model_output/station_placement_v3.mps"
@@ -203,8 +204,10 @@ def build_model(airlink_stations, airlink_edges, location_names, valid_station_l
     model.w = pyo.Var(model.PHYSICAL_LINKS, bounds=(0, 1))
     model.physical_link_usage = pyo.Constraint(model.PHYSICAL_LINKS, rule=physical_link_usage_rule)
     
-    model.CROSSING_LINK_INDEX = pyo.Set(dimen=4, initialize=crossing_physical_links)
-    model.crossing_links = pyo.Constraint(model.CROSSING_LINK_INDEX, rule=crossing_link_rule)
+    #model.CROSSING_LINK_INDEX = pyo.Set(dimen=4, initialize=crossing_physical_links)
+    #model.crossing_links = pyo.Constraint(model.CROSSING_LINK_INDEX, rule=crossing_link_rule)
+    model.crossing_links = pyo.ConstraintList()
+    #for l1a, l2a, l1b, l2b in new_crossings:model.crossing_links.add(model.w[l1a, l2a] +    model.w[l1b, l2b]    <= 1)
     
     #station/location constraints
     model.one_location_per_station = pyo.Constraint( model.STATIONS, rule=one_location_per_station_rule)
@@ -591,6 +594,25 @@ def physical_links_cross(link_a, link_b, location_lookup):
     # existing blocker logic handles these
     return False
 
+def get_used_physical_links(model):
+    return [(location1, location2) for location1, location2 in model.PHYSICAL_LINKS if pyo.value(model.w[location1, location2]) > 0.5 ]
+
+def get_used_crossings(used_links, location_lookup):
+    crossings = []
+    for i in range(len(used_links)):
+        link_a = used_links[i]
+        for j in range(i + 1, len(used_links)):
+            link_b = used_links[j]
+            if physical_links_cross(link_a, link_b, location_lookup):
+                crossing = canonical_crossing(link_a,link_b)
+                #crossings.append((link_a[0], link_a[1], link_b[0], link_b[1]))
+                crossings.append((crossing[0][0], crossing[0][1], crossing[1][0], crossing[1][1]))
+    return crossings
+
+def canonical_crossing(link_a, link_b):
+    return tuple(sorted((tuple(sorted(link_a)), tuple(sorted(link_b)))))
+
+
 
 Path("./model_output").mkdir(parents=True, exist_ok=True)
 
@@ -793,10 +815,32 @@ print("NCONSTRAINTS: ", model.nconstraints())
 
 if Flag_Output_MPS==True:
     output_mps(model)
+    
 solver = pyo.SolverFactory("appsi_highs")
 solver.options["time_limit"] = SOLVER_TIME_LIMIT
 
-results = solver.solve(model,tee=True,load_solutions=False)
+added_crossings = set()
+for iteration in range(MAX_CROSSING_ITERATIONS):
+    results = solver.solve(model, tee=True, load_solutions=False)
+    if len(results.solution) == 0:
+        print("No feasible solution found.")
+        break
+    model.solutions.load_from(results)
+    used_links = get_used_physical_links(model)
+    crossings = get_used_crossings(used_links, location_lookup)    
+    new_crossings = [crossing for crossing in crossings if crossing not in added_crossings]
+
+    print(f"Iteration {iteration + 1}: " f"{len(crossings)} crossings, " f"{len(new_crossings)} new")
+    if not crossings:
+        print("Crossing-free solution found.")
+        break
+
+    for crossing in new_crossings:
+        l1a, l2a, l1b, l2b = crossing        
+        model.crossing_links.add(model.w[l1a, l2a] + model.w[l1b, l2b]<= 1)
+        added_crossings.add(crossing)
+    
+    #results = solver.solve(model,tee=True,load_solutions=False)
 print("Termination:",results.solver.termination_condition)
 if len(results.solution) > 0:
     model.solutions.load_from(results)
