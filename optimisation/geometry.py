@@ -186,4 +186,18 @@ def canonical_crossing(link_a, link_b):
     return tuple(sorted((tuple(sorted(link_a)), tuple(sorted(link_b)))))
 
 
+############
+#def location_pair_distance(location1, location2):
+#def check_valid_location(location1, location2, maximum_distance, max_ring_difference):
+#def get_ring_locations(locations):
+#def get_blocking_locations(location1,  location2, location_lookup, ring_locations):
+#def orientation(p1, p2, p3):
+#def location_links_cross(location1a, location2a, location1b, location2b,location_lookup):
+#def physical_link(location1, location2):
+#def link_spans_ring(location1, location2, target_ring, location_lookup):
+#def angle_on_short_arc(theta, theta1, theta2):
+#def same_ring_inter_ring_cross(same_location1, same_location2, inter_location1, inter_location2, location_lookup):
+#def physical_links_cross(link_a, link_b, location_lookup):
+#def segment_ring_intersection_angles(location1, location2, target_radius, location_lookup):
+#def canonical_crossing(link_a, link_b):
 
