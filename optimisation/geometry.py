@@ -199,5 +199,5 @@ def canonical_crossing(link_a, link_b):
 #def same_ring_inter_ring_cross(same_location1, same_location2, inter_location1, inter_location2, location_lookup):
 #def physical_links_cross(link_a, link_b, location_lookup):
 #def segment_ring_intersection_angles(location1, location2, target_radius, location_lookup):
-#def canonical_crossing(link_a, link_b):
+#canonical def_crossing(link_a, link_b):
 
