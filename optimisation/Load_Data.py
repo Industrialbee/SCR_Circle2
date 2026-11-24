@@ -91,17 +91,8 @@ def get_used_crossings(used_links, location_lookup):
 Path("./model_output").mkdir(parents=True, exist_ok=True)
 
     
-valid_z = get_valid_z_indices(airlink_edges, valid_location_pairs, eligible_locations, station_neighbours, location_neighbours)
 
-#Precompute blockers for every valid location pair
-blocking_locations = {(location1, location2): get_blocking_locations(location1, location2, location_lookup, ring_locations) for location1, location2 in valid_location_pairs}
 
-#precompute a flat constraint-index list for blocking constraint
-blocking_constraints = []
-for (station1, station2, location1, location2) in valid_z:
-    if blocking_locations[(location1, location2)]:
-        blocking_constraints.append((station1, station2, location1, location2))
-print("Blocking constraints:",len(blocking_constraints))
 
 #precompute crossing location-pair combinations
 #crossing_location_pairs = get_crossing_location_pairs(valid_location_pairs,location_lookup)
@@ -137,31 +128,6 @@ print("Maximum blocking locations:", max((len(blockers) for blockers in blocking
 for pair, blockers in list(pairs_with_blockers.items())[:10]:print(pair, "blocks", blockers)
 
 
-x_locations_by_station = {station: set() for station in airlink_stations}
-x_stations_by_location = {location: set() for location in location_names}
-for station, location in valid_station_locations:
-    x_locations_by_station[station].add(location)
-    x_stations_by_location[location].add(station)
-
-for station in airlink_stations:
-    if not x_locations_by_station[station]:
-        raise ValueError(f"No eligible locations for station: {station}")
-
-z_outgoing = {}
-z_incoming = {}
-for (station1, station2, location1, location2) in valid_z:
-    z_outgoing.setdefault((station1, station2, location1), []).append(location2)
-    z_incoming.setdefault((station1, station2, location2), []).append(location1)
-
-z_start_indices = []
-z_end_indices = []
-for station1, station2 in airlink_edges:
-    for location1 in eligible_locations[station1]:
-        z_start_indices.append((station1, station2, location1))
-
-    for location2 in eligible_locations[station2]:
-        z_end_indices.append((station1, station2, location2))
-
 z_by_location_pair = {}
 
 for (station1, station2, location1, location2) in valid_z:
@@ -175,11 +141,6 @@ print("Blocking constraints:", len(blocking_constraints))
 #crossing_z_pairs = get_crossing_z_pairs(crossing_location_pairs, z_by_location_pair)
 #print("Crossing z constraints:",len(crossing_z_pairs))
 
-physical_links = {physical_link(location1, location2) for (station1, station2, location1, location2) in valid_z}
-z_by_physical_link = {link: []  for link in physical_links}
-for (station1, station2, location1, location2) in valid_z:
-    link = physical_link(location1, location2)
-    z_by_physical_link[link].append((station1, station2, location1, location2))
 
 #crossing_physical_links=get_crossing_physical_links(physical_links, location_lookup)
 #print("Physical links:", len(physical_links))

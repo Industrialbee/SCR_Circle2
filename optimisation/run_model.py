@@ -17,6 +17,6 @@ if config.output["write_station_json"]: outputs.print_station_pairs(NetworkData.
 #an adjacent pair of stations may be at most X nominal station spacings apart
 maximum_distance_apart = ( config.geometry["max_distance_multiplier"] * NetworkData.target_spacing)
 if config.output["write_location_json"]:outputs.print_potential_locations(PROJECT_ROOT /config.filepaths["Potential_stations_json_path"], NetworkData.locations,maximum_distance_apart)
-#dataprep=prep.preprocess(config, NetworkData.locations, NetworkData.stations, NetworkData.edges)
+PreparedData=prep.preprocess(config, NetworkData.locations, NetworkData.stations, NetworkData.edges)
 
 

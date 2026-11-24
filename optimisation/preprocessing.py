@@ -1,4 +1,5 @@
 import geometry as geo
+import math
 from dataclasses import dataclass
 
 
@@ -157,9 +158,69 @@ def preprocess(config, potential_locations, stations, edges):
     
     #Get reference locations and key station
     reference_locations=get_reference_locations( potential_locations["Locations"])
-    KEY_STATION=get_key_station(edges,  mode=config.symmetry["keystation_mode"], key_station=config.symmetry["key_station"])
+    KEY_STATION=get_key_station(edges,  mode=config.symmetry["key_station_mode"], key_station=config.symmetry["key_station"])
     print("Key station:", KEY_STATION)
     print("Reference locations:", reference_locations)
 
+    valid_z = get_valid_z_indices(edges, valid_location_pairs, eligible_locations, station_neighbours, location_neighbours)
+    
+    x_locations_by_station = {station: set() for station in stations}
+    x_stations_by_location = {location: set() for location in location_names}
+    for station, location in valid_station_locations:
+        x_locations_by_station[station].add(location)
+        x_stations_by_location[location].add(station)
 
+    for station in stations:
+        if not x_locations_by_station[station]:
+            raise ValueError(f"No eligible locations for station: {station}")
 
+    z_outgoing = {}
+    z_incoming = {}
+    for (station1, station2, location1, location2) in valid_z:
+        z_outgoing.setdefault((station1, station2, location1), []).append(location2)
+        z_incoming.setdefault((station1, station2, location2), []).append(location1)
+
+    #Precompute blockers for every valid location pair
+    blocking_locations = {(location1, location2): geo.get_blocking_locations(location1, location2, location_lookup, ring_locations) for location1, location2 in valid_location_pairs}
+
+    #precompute a flat constraint-index list for blocking constraint
+    blocking_constraints = []
+    for (station1, station2, location1, location2) in valid_z:
+        if blocking_locations[(location1, location2)]:
+            blocking_constraints.append((station1, station2, location1, location2))
+    print("Blocking constraints:",len(blocking_constraints))
+
+    physical_links = {geo.physical_link(location1, location2) for (station1, station2, location1, location2) in valid_z}
+    z_by_physical_link = {link: []  for link in physical_links}
+    for (station1, station2, location1, location2) in valid_z:
+        link = geo.physical_link(location1, location2)
+        z_by_physical_link[link].append((station1, station2, location1, location2))
+
+    z_start_indices = []
+    z_end_indices = []
+    for station1, station2 in edges:
+        for location1 in eligible_locations[station1]:
+            z_start_indices.append((station1, station2, location1))
+
+        for location2 in eligible_locations[station2]:
+            z_end_indices.append((station1, station2, location2))
+    return {
+        "stations": stations,
+        "edges": edges,
+        "location_names": location_names,
+        "location_lookup": location_lookup,
+        "valid_station_locations": valid_station_locations,
+        "valid_z": valid_z,
+        "x_locations_by_station": x_locations_by_station,
+        "x_stations_by_location": x_stations_by_location,
+        "z_outgoing": z_outgoing,
+        "z_incoming": z_incoming,
+        "blocking_locations": blocking_locations,
+        "blocking_constraints": blocking_constraints,
+        "location_pair_distances": location_pair_distances,
+        "reference_locations": reference_locations,
+        "physical_links": physical_links,
+       "z_by_physical_link": z_by_physical_link,
+       "z_start_indices": z_start_indices,
+        "z_end_indices": z_end_indices
+    }
