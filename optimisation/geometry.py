@@ -1,3 +1,5 @@
+import math
+
 def location_pair_distance(location1, location2):
     #print(location1['X'], location1['Y'], location2['X'],location2['Y'])
     #calc euclidean distance between locations. Actual distance will be mix of arcs and radii (larger)

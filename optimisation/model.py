@@ -24,15 +24,15 @@ def edge_end_location_rule(model, station1, station2, location2):
     valid_start_locations = z_incoming.get((station1, station2, location2), [])
     return sum(model.z[station1, station2, location1, location2] for location1 in valid_start_locations) == model.x[station2, location2]
     
-def key_station_reference_rule(model):
-    #return sum(model.x[model.KEY_STATION, location] for location in reference_locations) == 1
-    #valid_reference_locations = [location for location in reference_locations if location in x_locations_by_station[pyo.value(model.KEY_STATION)]]
-    #return sum(model.x[model.KEY_STATION, location] for location in valid_reference_locations) == 1
-    key_station = pyo.value(model.KEY_STATION)
-    valid_reference_locations = [location for location in reference_locations if location in x_locations_by_station[key_station]]
-    if not valid_reference_locations:
-        raise ValueError(f"No reference location available for key station {KEY_STATION}")
-    return sum(model.x[key_station, location] for location in valid_reference_locations) == 1
+#def key_station_reference_rule(model):
+#    #return sum(model.x[model.KEY_STATION, location] for location in reference_locations) == 1
+#    #valid_reference_locations = [location for location in reference_locations if location in x_locations_by_station[pyo.value(model.KEY_STATION)]]
+#    #return sum(model.x[model.KEY_STATION, location] for location in valid_reference_locations) == 1
+#    key_station = pyo.value(model.KEY_STATION)
+#    valid_reference_locations = [location for location in reference_locations if location in x_locations_by_station[key_station]]
+#    if not valid_reference_locations:
+#        raise ValueError(f"No reference location available for key station {KEY_STATION}")
+#    return sum(model.x[key_station, location] for location in valid_reference_locations) == 1
     
 #def blocking_location_rule(model, station1, station2, location1, location2, blocker):
 #Blocking locations + at most one station occupying a location can't be more than 1
@@ -61,18 +61,18 @@ def model_objective_rule(model):
         location_pair_distances[location1, location2] * model.z[station1, station2, location1, location2]
         for (station1, station2, location1, location2) in model.Z_INDEX)
 
-#def build_model(airlink_stations, airlink_edges, location_names, valid_location_pairs, location_pair_distances,key_station ):
-def build_model(airlink_stations, airlink_edges, location_names, valid_station_locations, valid_z, blocking_constraints, z_start_indices, z_end_indices, location_pair_distances, key_station, z_by_physical_link, physical_links, crossing_physical_links):
+#def build_model(stations, edges, location_names, valid_location_pairs, location_pair_distances,key_station ):
+def build_model(stations, edges, location_names, valid_station_locations, valid_z, blocking_constraints, z_start_indices, z_end_indices, location_pair_distances, key_station, z_by_physical_link, physical_links):
     #Define model
     model = pyo.ConcreteModel(name="Station placement")
     
     #Add location names / station names to model
-    model.STATIONS = pyo.Set(initialize=airlink_stations,   ordered=True)
+    model.STATIONS = pyo.Set(initialize=stations,   ordered=True)
     model.LOCATIONS = pyo.Set(initialize=location_names,    ordered=True)
 
     #model.KEY_STATION=pyo.Param(initialize=key_station)
     
-    model.EDGES = pyo.Set(dimen=2, initialize=airlink_edges, ordered=True)
+    model.EDGES = pyo.Set(dimen=2, initialize=edges, ordered=True)
     model.STATION_LOCATIONS = pyo.Set(dimen=2, initialize=valid_station_locations)
 
     model.Z_INDEX = pyo.Set(dimen=4, initialize=valid_z)

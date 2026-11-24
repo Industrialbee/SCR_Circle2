@@ -1,6 +1,25 @@
 import json
+from dataclasses import dataclass
 
-def load_config(path):
+@dataclass(frozen=True)
+class NetworkData:
+    station_pairs: list[dict]
+    edges: list[tuple[str, str]]
+    stations: list[str]
+    locations: list[dict]
+    target_spacing: float
+
+@dataclass(frozen=True)
+class ConfigData:
+    operator:tuple[str,str]
+    geometry: dict
+    filepaths: dict
+    constraints:dict
+    symmetry:dict
+    solver:dict
+    output:dict
+
+def load_json_config(path):
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
 
@@ -29,9 +48,18 @@ def get_station_names(edges:list[tuple[str, str]])->list[str]:
     stations_names = sorted({station for a, b in edges for station in (a, b)})
     return stations_names
 
-def print_station_pairs(station_pairs, airlink_edges, airlink_stations, Station_pair_json_path):    
-    print("From potential locations file: ", Station_pair_json_path)
-    print("Station pairs loaded: ", len(station_pairs))
-    print("Station edges loaded: ", len(airlink_edges))
-    print("Station names loaded: ", len(airlink_stations))
+def build_network_data(station_pairs_path, locations_path, operator=""):
+    station_pairs = load_station_pairs(station_pairs_path)
+    edges = get_edges(station_pairs, operator)
+    potential = load_potential_locations(locations_path)
+    return NetworkData(station_pairs =station_pairs , edges=edges, stations=get_station_names(edges), locations=potential, target_spacing=potential["TargetSpacing"])
+
+def load_config(path):
+    config=load_json_config(path)
+    return ConfigData(operator=config["operator"], geometry=config["geometry"],filepaths=config["filepaths"],constraints=config["constraints"],symmetry=config["symmetry"],
+    solver=config["solver"],output=config["output"])
+    #return ConfigData(config)
+
+
+
 
