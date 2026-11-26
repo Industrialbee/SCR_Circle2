@@ -196,24 +196,15 @@ def scrape(url: str) -> Tuple[List[dict], List[dict]]:
 def main() -> None:
     logging.basicConfig(level=logging.INFO)
 
-    url = (
-        "https://en.namu.wiki/w/Stepford%20County%20Railway/%EC%9A%B4%ED%96%89%20%EA%B3%84%ED%86%B5"
-    )
-
+    url = ("https://en.namu.wiki/w/Stepford%20County%20Railway/%EC%9A%B4%ED%96%89%20%EA%B3%84%ED%86%B5" )
     pairs, ops = scrape(url)
 
-    out_dir = Path("data")
+    out_dir = Path("./")
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    (out_dir / "station_pairs.json").write_text(
-        json.dumps(pairs, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-    (out_dir / "operators.json").write_text(
-        json.dumps(ops, ensure_ascii=False, indent=2), encoding="utf-8"
-    )
-
+    (out_dir / "station_pairs.json").write_text(json.dumps(pairs, ensure_ascii=False, indent=2), encoding="utf-8")
+    (out_dir / "operators.json").write_text(json.dumps(ops, ensure_ascii=False, indent=2), encoding="utf-8")
     LOG.info("Wrote %d station pairs and %d operators into %s", len(pairs), len(ops), out_dir)
-
 
 if __name__ == "__main__":
     main()

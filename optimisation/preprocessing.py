@@ -1,36 +1,29 @@
-import geometry as geo
+from . import geometry as geo
 import math
 from dataclasses import dataclass
 
-
 @dataclass(frozen=True)
-class NetworkData:
-    station_pairs: list[dict]
-    edges: list[tuple[str, str]]
-    stations: list[str]
-    locations: list[dict]
-    target_spacing: float
-
-#class PlacementData:
-#    x_locations_by_stations
-#    x_stations_by_location
-#    z_outgoing
-#    z_incoming
-#    blocking_locations
-#    location_pair_distance
-#    reference_locations
-#    z_by_physical_link
+class PlacementData:
+    stations:list
+    edges:list
+    location_names:list
+    location_lookup:dict
+    valid_station_locations:list
+    valid_z:list
+    x_locations_by_station:dict
+    x_stations_by_location:dict
+    z_outgoing:dict
+    z_incoming:dict
+    blocking_locations:dict
+    blocking_constraints:list
+    location_pair_distances:dict
+    reference_locations:list
+    key_station:str
+    physical_links:set
+    z_by_physical_link:dict
+    z_start_indices:list
+    z_end_indices:list
     
-def get_reference_locations(locations):
-    #for each ring, find the location with the smallest theta (closest to the horizontal axis)
-    by_ring = {}
-    for location in locations:
-        ring = location["Ring"]
-        theta_distance = min(location["Theta"],  2 * math.pi - location["Theta"] )
-        if (ring not in by_ring  or theta_distance < by_ring[ring][0] ):
-            by_ring[ring] = (theta_distance, location["Location"] )
-    return [by_ring[ring][1] for ring in sorted(by_ring)]
-
 def get_key_station(edges, mode="degree", key_station=None):
     #If key_station not already defined by user then find statoin with highest degree of connections
     if mode == "manual":
@@ -54,30 +47,30 @@ def get_station_neighbours(stations, edges):
         station_neighbours[station2].add(station1)
     return station_neighbours
 
-def get_valid_location_pairs(locations, target_spacing, max_distance_multiplier, max_ring_difference):
-    #get valid locations. rather than compare every location (n^2), restrict to those in proximity
+def get_valid_location_pairs(potential_locations, target_spacing, max_distance_multiplier, max_ring_difference):
+    #get valid potential_locations. rather than compare every location (n^2), restrict to those in proximity
     valid_pairs = []
     maximum_distance = (target_spacing * max_distance_multiplier)
-    for location1 in locations:
-        for location2 in locations:
+    for location1 in potential_locations:
+        for location2 in potential_locations:
             if geo.check_valid_location(location1, location2, maximum_distance, max_ring_difference)==True:
                 valid_pairs.append((location1["Location"],location2["Location"]))
     return valid_pairs
 
 def check_feasible_location(station, location, station_degree, location_neighbour_count):
-    #for station, check if number of reachable locations >= number of connecting stations    
+    #for station, check if number of reachable potential_locations >= number of connecting stations    
     return (location_neighbour_count[location] >= station_degree[station] )
 
-def get_valid_station_locations(stations, locations, station_degree, location_neighbour_count):
+def get_valid_station_locations(stations, potential_locations, station_degree, location_neighbour_count):
     valid_station_locations = []
     for station in stations:
-        for location in locations:
+        for location in potential_locations:
             if check_feasible_location(station, location, station_degree, location_neighbour_count):
                 valid_station_locations.append((station, location))
     return valid_station_locations
 
 def check_common_neighbours_count(station1, station2,location1, location2,station_neighbours,location_neighbours):
-    #check if there are at least as many valid locations reachable from both location1 and location2 as there are stations connected to station1 and station2
+    #check if there are at least as many valid potential_locations reachable from both location1 and location2 as there are stations connected to station1 and station2
     common_stations = (station_neighbours[station1] & station_neighbours[station2] )
     common_locations = (location_neighbours[location1] & location_neighbours[location2] )
     return (len(common_locations) >= len(common_stations))
@@ -109,7 +102,11 @@ def get_valid_z_indices(edges, valid_location_pairs, eligible_locations, station
 #build blockers
 #############
 
-def preprocess(config, potential_locations, stations, edges):
+def preprocess(config, network_data):
+    potential_locations = network_data.locations
+    stations = network_data.stations
+    edges = network_data.edges
+    
     #an adjacent pair of stations may be at most X nominal station spacings apart
     maximum_distance_apart = ( config.geometry["max_distance_multiplier"]* potential_locations["TargetSpacing"])
     #print_potential_locations(config, potential_locations,maximum_distance_apart)
@@ -117,7 +114,7 @@ def preprocess(config, potential_locations, stations, edges):
     #Build location lookup
     location_lookup = {row["Location"]: row for row in potential_locations["Locations"]}
 
-    #Build an ordered list of locations on each ring
+    #Build an ordered list of potential_locations on each ring
     ring_locations = geo.get_ring_locations(potential_locations["Locations"])
 
     #Define list of valid (in near proximity) location pairs 
@@ -157,9 +154,9 @@ def preprocess(config, potential_locations, stations, edges):
         eligible_locations[station].add(location)
     
     #Get reference locations and key station
-    reference_locations=get_reference_locations( potential_locations["Locations"])
-    KEY_STATION=get_key_station(edges,  mode=config.symmetry["key_station_mode"], key_station=config.symmetry["key_station"])
-    print("Key station:", KEY_STATION)
+    reference_locations=geo.get_reference_locations( potential_locations["Locations"])
+    key_station=get_key_station(edges,  mode=config.symmetry["key_station_mode"], key_station=config.symmetry["key_station"])
+    print("Key station:", key_station)
     print("Reference locations:", reference_locations)
 
     valid_z = get_valid_z_indices(edges, valid_location_pairs, eligible_locations, station_neighbours, location_neighbours)
@@ -204,23 +201,5 @@ def preprocess(config, potential_locations, stations, edges):
 
         for location2 in eligible_locations[station2]:
             z_end_indices.append((station1, station2, location2))
-    return {
-        "stations": stations,
-        "edges": edges,
-        "location_names": location_names,
-        "location_lookup": location_lookup,
-        "valid_station_locations": valid_station_locations,
-        "valid_z": valid_z,
-        "x_locations_by_station": x_locations_by_station,
-        "x_stations_by_location": x_stations_by_location,
-        "z_outgoing": z_outgoing,
-        "z_incoming": z_incoming,
-        "blocking_locations": blocking_locations,
-        "blocking_constraints": blocking_constraints,
-        "location_pair_distances": location_pair_distances,
-        "reference_locations": reference_locations,
-        "physical_links": physical_links,
-       "z_by_physical_link": z_by_physical_link,
-       "z_start_indices": z_start_indices,
-        "z_end_indices": z_end_indices
-    }
+    return PlacementData(stations=stations,edges=edges,location_names=location_names,location_lookup=location_lookup,valid_station_locations=valid_station_locations,valid_z=valid_z,x_locations_by_station=x_locations_by_station,x_stations_by_location=x_stations_by_location,z_outgoing=z_outgoing,z_incoming=z_incoming,blocking_locations=blocking_locations,blocking_constraints=blocking_constraints,location_pair_distances=location_pair_distances,reference_locations=reference_locations,key_station=key_station,physical_links=physical_links,z_by_physical_link=z_by_physical_link,z_start_indices=z_start_indices,z_end_indices=z_end_indices)
+

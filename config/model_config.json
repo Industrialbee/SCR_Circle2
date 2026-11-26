@@ -1,0 +1,46 @@
+{
+  "operator": "AirLink",
+
+  "geometry": {
+    "max_distance_multiplier": 3.0,
+    "max_ring_difference": 3
+  },
+  
+  "filepaths": {
+  "Station_pair_json_path":"data_gather/station_pairs.json",
+  "Potential_stations_json_path":"potential_locations/potential_station_locations.json",
+  "MPS_path":"model_output/station_placement_v3.mps",
+  "Assignment_path":"model_output/station_assignments_3.json",
+  "Model_output":"model_output"
+  },
+  
+  "preprocessing": {
+    "degree_feasibility": true,
+    "common_neighbour": true,
+    "combined_neighbour_capacity": true
+  },
+
+  "constraints": {
+    "same_ring_blocking": true,
+    "key_station_symmetry": true,
+    "crossing_generation": true
+  },
+
+  "symmetry": {
+    "key_station_mode": "degree",
+    "key_station": "Stepford Central"
+  },
+
+  "solver": {
+    "name": "appsi_highs",
+    "time_limit": 120,
+    "max_crossing_iterations": 3
+  },
+
+  "output": {
+    "write_station_json": true,
+    "write_location_json":true,
+    "write_mps": false,
+    "write_results": true
+  }
+}

@@ -101,14 +101,14 @@ def angle_on_short_arc(theta, theta1, theta2):
     theta = theta % two_pi
     theta1 = theta1 % two_pi
     theta2 = theta2 % two_pi
-    clockwise = (theta2 - theta1) % two_pi
-    anticlockwise = (theta1 - theta2) % two_pi
-    if clockwise < anticlockwise:
-        distance = (theta - theta1) % two_pi
-        return 0 < distance < clockwise
+    anticlockwise = (theta2 - theta1) % two_pi
+    clockwise = (theta1 - theta2) % two_pi
     if anticlockwise < clockwise:
-        distance = (theta1 - theta) % two_pi
+        distance = (theta - theta1) % two_pi
         return 0 < distance < anticlockwise
+    elif clockwise < anticlockwise:
+        distance = (theta1 - theta) % two_pi
+        return 0 < distance < clockwise
     # Exactly opposite: routing direction ambiguous
     return False
 
@@ -187,6 +187,16 @@ def segment_ring_intersection_angles(location1, location2, target_radius, locati
 def canonical_crossing(link_a, link_b):
     return tuple(sorted((tuple(sorted(link_a)), tuple(sorted(link_b)))))
 
+def get_reference_locations(potential_locations):
+    #for each ring, find the location with the smallest theta (closest to the horizontal axis)
+    by_ring = {}
+    for location in potential_locations:
+        ring = location["Ring"]
+        theta_distance = min(location["Theta"],  2 * math.pi - location["Theta"] )
+        if (ring not in by_ring  or theta_distance < by_ring[ring][0] ):
+            by_ring[ring] = (theta_distance, location["Location"] )
+    return [by_ring[ring][1] for ring in sorted(by_ring)]
+
 
 ############
 #def location_pair_distance(location1, location2):
@@ -203,3 +213,16 @@ def canonical_crossing(link_a, link_b):
 #def segment_ring_intersection_angles(location1, location2, target_radius, location_lookup):
 #canonical def_crossing(link_a, link_b):
 
+#UNIT TESTING
+def test_angle_on_short_arc():
+    assert angle_on_short_arc(0.5, 0.0, 1.0)
+    assert not angle_on_short_arc(2.0, 0.0, 1.0)
+
+def test_angle_wraparound():
+    assert angle_on_short_arc(0.0, 6.0, 0.3)
+
+def geo_unit_tests():
+    test_angle_on_short_arc
+    test_angle_wraparound
+    
+    

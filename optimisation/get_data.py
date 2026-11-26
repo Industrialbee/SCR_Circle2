@@ -11,7 +11,7 @@ class NetworkData:
 
 @dataclass(frozen=True)
 class ConfigData:
-    operator:tuple[str,str]
+    operator:str
     geometry: dict
     filepaths: dict
     constraints:dict
@@ -19,29 +19,17 @@ class ConfigData:
     solver:dict
     output:dict
 
-def load_json_config(path):
+def load_json(path):
     with open(path, "r", encoding="utf-8") as f:
         return json.load(f)
-
-def load_station_pairs(Station_pair_json_path):
-    #Load station pairs
-    with open(Station_pair_json_path, "r", encoding="utf-8") as sp:
-        station_pairs = json.load(sp)
-    return station_pairs
-
-def load_potential_locations(Potential_stations_json_path):
-    #Load potential locations
-    with open(Potential_stations_json_path, "r", encoding="utf-8") as pl: 
-        potential_locations=json.load(pl)
-    return potential_locations
 
 def get_edges(station_pairs: list[dict], operatorfilter: str = "") -> list[tuple[str, str]]:
     #Get list of station pairs data. If operator name filter supplied then filter to that operator only
     if operatorfilter=="" :
-        airlink_edges = [(row["FirstStation"], row["SecondStation"]) for row in station_pairs]
+        edges = [(row["FirstStation"], row["SecondStation"]) for row in station_pairs]
     else:
-        airlink_edges = [(row["FirstStation"], row["SecondStation"]) for row in station_pairs if row["Operator"] == operatorfilter]
-    return airlink_edges
+        edges = [(row["FirstStation"], row["SecondStation"]) for row in station_pairs if row["Operator"] == operatorfilter]
+    return edges
 
 def get_station_names(edges:list[tuple[str, str]])->list[str]:    
     #List of stations in operator routes
@@ -49,13 +37,13 @@ def get_station_names(edges:list[tuple[str, str]])->list[str]:
     return stations_names
 
 def build_network_data(station_pairs_path, locations_path, operator=""):
-    station_pairs = load_station_pairs(station_pairs_path)
+    station_pairs = load_json(station_pairs_path)
+    potential = load_json(locations_path)
     edges = get_edges(station_pairs, operator)
-    potential = load_potential_locations(locations_path)
     return NetworkData(station_pairs =station_pairs , edges=edges, stations=get_station_names(edges), locations=potential, target_spacing=potential["TargetSpacing"])
 
 def load_config(path):
-    config=load_json_config(path)
+    config=load_json(path)
     return ConfigData(operator=config["operator"], geometry=config["geometry"],filepaths=config["filepaths"],constraints=config["constraints"],symmetry=config["symmetry"],
     solver=config["solver"],output=config["output"])
     #return ConfigData(config)

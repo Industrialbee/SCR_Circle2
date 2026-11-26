@@ -1,3 +1,5 @@
+import pyomo.environ as pyo
+
 def one_location_per_station_rule(model, station):
     #A station occupies exactly one location
     #return sum(model.x[station, location] for location in model.LOCATIONS) == 1
