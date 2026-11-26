@@ -152,17 +152,6 @@ for station in airlink_stations:
     if not eligible_locations[station]:
         print("NO ELIGIBLE LOCATIONS:", station)
 
-# edges with no valid z placements
-z_count_by_edge = {(station1, station2): 0 for station1, station2 in airlink_edges}
-for station1, station2, location1, location2 in valid_z:
-    z_count_by_edge[(station1, station2)] += 1
-for edge, count in z_count_by_edge.items():
-    if count == 0:
-        print("NO VALID Z FOR EDGE:", edge)
-
-# key station reference sanity check
-valid_reference_locations = [location for location in reference_locations if location in x_locations_by_station[KEY_STATION]]
-print("Valid reference locations for key station:", valid_reference_locations)
 
 if len(valid_reference_locations)==0:
     sys.exit("No valid location found for reference location. Try increasing MAX_DISTANCE_THRESHOLD")

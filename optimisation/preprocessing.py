@@ -1,4 +1,4 @@
-from . import geometry as geo
+import geometry as geo
 import math
 from dataclasses import dataclass
 
@@ -61,12 +61,13 @@ def check_feasible_location(station, location, station_degree, location_neighbou
     #for station, check if number of reachable potential_locations >= number of connecting stations    
     return (location_neighbour_count[location] >= station_degree[station] )
 
-def get_valid_station_locations(stations, potential_locations, station_degree, location_neighbour_count):
+def get_valid_station_locations(stations, potential_locations, station_degree, location_neighbour_count,use_degree_feasibility=True):
     valid_station_locations = []
     for station in stations:
         for location in potential_locations:
-            if check_feasible_location(station, location, station_degree, location_neighbour_count):
-                valid_station_locations.append((station, location))
+            if (use_degree_feasibility and not check_feasible_location(station, location, station_degree, location_neighbour_count)):
+                continue
+            valid_station_locations.append((station, location))
     return valid_station_locations
 
 def check_common_neighbours_count(station1, station2,location1, location2,station_neighbours,location_neighbours):
@@ -80,13 +81,15 @@ def check_combined_neighbour_capacity(station1, station2, location1, location2, 
     available_locations = (location_neighbours[location1] | location_neighbours[location2]  ) - {location1, location2}
     return (len(available_locations)>= len(required_neighbours)  )
 
-def get_valid_z_indices(edges, valid_location_pairs, eligible_locations, station_neighbours, location_neighbours):
+def get_valid_z_indices(edges, valid_location_pairs, x_locations_by_station, station_neighbours, location_neighbours,use_common_neighbour=True):
     valid_z = []
     for station1, station2 in edges:
         for location1, location2 in valid_location_pairs:
-            if location1 not in eligible_locations[station1]:
+            if use_common_neighbour != True:
                 continue
-            if location2 not in eligible_locations[station2]:
+            if location1 not in x_locations_by_station[station1]:
+                continue
+            if location2 not in x_locations_by_station[station2]:
                 continue
             if not check_common_neighbours_count(station1, station2, location1, location2, station_neighbours, location_neighbours):
                 continue
@@ -129,10 +132,10 @@ def preprocess(config, network_data):
 
     #Compute neighbouring location lists
     outgoing_locations = {location: set() for location in location_names}
-    incoming_locations = {location: set() for location in location_names}
+    #incoming_locations = {location: set() for location in location_names}
     for location1, location2 in valid_location_pairs:
         outgoing_locations[location1].add(location2)
-        incoming_locations[location2].add(location1)
+        #incoming_locations[location2].add(location1)
     location_neighbours = outgoing_locations
 
     #Create count of number of valid locations reachable from each location
@@ -142,31 +145,44 @@ def preprocess(config, network_data):
     #location_pair_distances = {(l1, l2): location_pair_distance(location_lookup[l1], location_lookup[l2]) for l1, l2 in valid_location_pairs}
     station_neighbours=get_station_neighbours(stations, edges)
     station_degree = {station: len(neighbours) for station, neighbours in station_neighbours.items()}
-    valid_station_locations = get_valid_station_locations(stations,location_names,station_degree,location_neighbour_count)
+    valid_station_locations = get_valid_station_locations(stations,location_names,station_degree,location_neighbour_count, config.preprocessing["degree_feasibility"])
     location_pair_distances = {(l1, l2): geo.location_pair_distance(location_lookup[l1], location_lookup[l2]) for l1, l2 in valid_location_pairs}
 
     #print("Station degrees:")
     #for station in stations:
     #    print(station, station_degree[station])
 
-    eligible_locations = {station: set() for station in stations}
-    for station, location in valid_station_locations:
-        eligible_locations[station].add(location)
-    
-    #Get reference locations and key station
-    reference_locations=geo.get_reference_locations( potential_locations["Locations"])
-    key_station=get_key_station(edges,  mode=config.symmetry["key_station_mode"], key_station=config.symmetry["key_station"])
-    print("Key station:", key_station)
-    print("Reference locations:", reference_locations)
-
-    valid_z = get_valid_z_indices(edges, valid_location_pairs, eligible_locations, station_neighbours, location_neighbours)
-    
+    #eligible_locations = {station: set() for station in stations}
+    #for station, location in valid_station_locations:
+    #    eligible_locations[station].add(location)
     x_locations_by_station = {station: set() for station in stations}
     x_stations_by_location = {location: set() for location in location_names}
     for station, location in valid_station_locations:
         x_locations_by_station[station].add(location)
         x_stations_by_location[location].add(station)
 
+    #Get reference locations and key station
+    reference_locations=geo.get_reference_locations( potential_locations["Locations"])
+    key_station=get_key_station(edges,  mode=config.symmetry["key_station_mode"], key_station=config.symmetry["key_station"])
+    print("Key station:", key_station)
+    print("Reference locations:", reference_locations)
+
+    valid_z = get_valid_z_indices(edges, valid_location_pairs, x_locations_by_station, station_neighbours, location_neighbours, config.preprocessing["common_neighbour"])
+    
+    # edges with no valid z placements
+    if config.constraints["key_station_symmetry"]:
+        z_count_by_edge = {(station1, station2): 0 for station1, station2 in edges}
+        for station1, station2, location1, location2 in valid_z:
+            z_count_by_edge[(station1, station2)] += 1
+        for edge, count in z_count_by_edge.items():
+            if count == 0:
+                print("NO VALID Z FOR EDGE:", edge)
+
+    # key station reference sanity check
+    valid_reference_locations = [location for location in reference_locations if location in x_locations_by_station[key_station]]
+    print("Valid reference locations for key station:", valid_reference_locations)
+
+    
     for station in stations:
         if not x_locations_by_station[station]:
             raise ValueError(f"No eligible locations for station: {station}")
@@ -177,29 +193,34 @@ def preprocess(config, network_data):
         z_outgoing.setdefault((station1, station2, location1), []).append(location2)
         z_incoming.setdefault((station1, station2, location2), []).append(location1)
 
-    #Precompute blockers for every valid location pair
-    blocking_locations = {(location1, location2): geo.get_blocking_locations(location1, location2, location_lookup, ring_locations) for location1, location2 in valid_location_pairs}
-
-    #precompute a flat constraint-index list for blocking constraint
+    blocking_locations = {}
     blocking_constraints = []
-    for (station1, station2, location1, location2) in valid_z:
-        if blocking_locations[(location1, location2)]:
-            blocking_constraints.append((station1, station2, location1, location2))
-    print("Blocking constraints:",len(blocking_constraints))
+    if config.constraints["same_ring_blocking"]:
+        #Precompute blockers for every valid location pair
+        blocking_locations = {(location1, location2): geo.get_blocking_locations(location1, location2, location_lookup, ring_locations) for location1, location2 in valid_location_pairs}
 
-    physical_links = {geo.physical_link(location1, location2) for (station1, station2, location1, location2) in valid_z}
-    z_by_physical_link = {link: []  for link in physical_links}
-    for (station1, station2, location1, location2) in valid_z:
-        link = geo.physical_link(location1, location2)
-        z_by_physical_link[link].append((station1, station2, location1, location2))
+        #precompute a flat constraint-index list for blocking constraint
+        blocking_constraints = []
+        for (station1, station2, location1, location2) in valid_z:
+            if blocking_locations[(location1, location2)]:
+                blocking_constraints.append((station1, station2, location1, location2))
+        print("Blocking constraints:",len(blocking_constraints))
+
+    #
+    if config.preprocessing["common_neighbour"]:
+        physical_links = {geo.physical_link(location1, location2) for (station1, station2, location1, location2) in valid_z}
+        z_by_physical_link = {link: []  for link in physical_links}
+        for (station1, station2, location1, location2) in valid_z:
+            link = geo.physical_link(location1, location2)
+            z_by_physical_link[link].append((station1, station2, location1, location2))
 
     z_start_indices = []
     z_end_indices = []
     for station1, station2 in edges:
-        for location1 in eligible_locations[station1]:
+        for location1 in x_locations_by_station[station1]:
             z_start_indices.append((station1, station2, location1))
 
-        for location2 in eligible_locations[station2]:
+        for location2 in x_locations_by_station[station2]:
             z_end_indices.append((station1, station2, location2))
     return PlacementData(stations=stations,edges=edges,location_names=location_names,location_lookup=location_lookup,valid_station_locations=valid_station_locations,valid_z=valid_z,x_locations_by_station=x_locations_by_station,x_stations_by_location=x_stations_by_location,z_outgoing=z_outgoing,z_incoming=z_incoming,blocking_locations=blocking_locations,blocking_constraints=blocking_constraints,location_pair_distances=location_pair_distances,reference_locations=reference_locations,key_station=key_station,physical_links=physical_links,z_by_physical_link=z_by_physical_link,z_start_indices=z_start_indices,z_end_indices=z_end_indices)
 

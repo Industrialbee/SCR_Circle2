@@ -14,6 +14,7 @@ class ConfigData:
     operator:str
     geometry: dict
     filepaths: dict
+    preprocessing:dict
     constraints:dict
     symmetry:dict
     solver:dict
@@ -44,8 +45,7 @@ def build_network_data(station_pairs_path, locations_path, operator=""):
 
 def load_config(path):
     config=load_json(path)
-    return ConfigData(operator=config["operator"], geometry=config["geometry"],filepaths=config["filepaths"],constraints=config["constraints"],symmetry=config["symmetry"],
-    solver=config["solver"],output=config["output"])
+    return ConfigData(operator=config["operator"],  geometry=config["geometry"], filepaths=config["filepaths"], constraints=config["constraints"], preprocessing=config["preprocessing"], symmetry=config["symmetry"], solver=config["solver"],output=config["output"])
     #return ConfigData(config)
 
 

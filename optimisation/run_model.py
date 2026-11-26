@@ -1,8 +1,8 @@
 
-from . import get_data 
-#from . import geometry as geo
-from . import preprocessing as prep
-from . import outputs 
+import get_data 
+import geometry as geo
+import preprocessing as prep
+import outputs 
 
 from pathlib import Path
 
